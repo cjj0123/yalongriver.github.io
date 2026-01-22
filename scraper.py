@@ -13,12 +13,6 @@ import datetime
 
 print(f"\n--- Script started at: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
 
-
-
-# 打印一条带时间戳的日志，表示脚本开始运行
-
-print(f"\n--- Script started at: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
-
 # --- 日志记录配置结束 ---
 
 
@@ -310,5 +304,6 @@ if __name__ == "__main__":
     fetch_and_store_data() 
 
 driver.close() # 关闭浏览器
+
 
 
