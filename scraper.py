@@ -80,68 +80,84 @@ def init_db():
 def fetch_and_store_data():
     print("🚀 启动自动化浏览器...")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
         context = browser.new_context(
-           user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-           viewport={'width': 1280, 'height': 800}
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1280, 'height': 800}
         )
         page = context.new_page()
         
         try:
-            print(f"🔗 正在访问: {TARGET_URL}")
-            # 改为 networkidle，确保网络请求基本加载完
-        try:
-            print(f"🔗 正在尝试访问 (策略：domcontentloaded): {TARGET_URL}")
+            print(f"🔗 正在尝试访问: {TARGET_URL}")
+            # 使用 domcontentloaded 策略提高海外访问成功率
             page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:
-            print(f"⚠️ 页面加载超时，但我们将尝试继续定位元素... {e}")
+            print(f"⚠️ 页面加载超时或有异常，但我们将尝试继续定位元素: {e}")
 
-            # 增加显式等待，防止页面空白
+        # --- 重要：抓取逻辑应该与上面的 try 平级，而不是缩进在 except 里面 ---
+        all_data = []
+        try:
+            # 等待关键元素出现
+            print("⏳ 等待页面输入框加载...")
             page.wait_for_selector('input[placeholder="站名"]', timeout=30000)
             
-            all_data = []
             for name in RESERVOIR_NAMES:
-                print(f"正在查询水库: {name}...")
+                print(f"🔍 正在查询水库: {name}...")
                 input_box = page.locator('input[placeholder="站名"]')
                 input_box.fill("") 
                 input_box.fill(name)
-                
-                # 关键：填完名字等一秒，让前端响应
                 page.wait_for_timeout(1500) 
 
-                # 捕获响应
                 try:
                     with page.expect_response("**/gateway.do", timeout=20000) as response_info:
                         page.locator("button.blue_button:has-text('搜索')").click()
                     
                     response = response_info.value
                     if response.ok:
-                        # 打印原始响应的前100个字符用于调试
                         raw_text = response.text()
-                        print(f"✅ 收到响应，长度: {len(raw_text)}")
+                        outer_data = json.loads(raw_text)
                         
-                        # 执行你之前的双重解包逻辑...
-                        # (此处确保你的 json.loads 逻辑没有因为异常而跳过)
-                        # ...
+                        # --- 这里嵌入你之前的双重解包逻辑 ---
+                        if outer_data.get('data') and isinstance(outer_data['data'], str):
+                            inner_data = json.loads(outer_data['data'])
+                            res_list = inner_data.get('result', {}).get('data', {}).get('list', [])
+                            for item in res_list:
+                                if item.get('zhanming') == name:
+                                    all_data.append(item)
+                                    print(f"✅ 成功解析到 {name} 的数据")
+                                    break
                 except Exception as e:
-                    print(f"❌ 查询 {name} 超时或失败: {e}")
+                    print(f"❌ 查询 {name} 失败: {e}")
 
             # 存储逻辑
             if all_data:
-                save_to_sqlite(all_data) # 确保这个函数被调用了
+                save_to_sqlite(all_data) 
             else:
-                print("⚠️ 警告：all_data 列表为空，没有数据可存！")
+                print("⚠️ 警告：本次运行未抓取到任何有效数据。")
 
+        except Exception as e:
+            print(f"💥 脚本运行过程中发生严重错误: {e}")
         finally:
             browser.close()
+            print("浏览器已关闭。")
+
+def save_to_sqlite(data_list):
+    """将数据存入数据库的辅助函数 (确保你代码中有这个函数)"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    now = datetime.datetime.now()
+    for res in data_list:
+        # 这里使用你之前的字段映射逻辑
+        cursor.execute('''
+            INSERT INTO reservoir_data (name, record_time, water_level, inflow, outflow, capacity_level)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (res.get("zhanming"), now, res.get("ksw"), res.get("rkll"), res.get("ckll"), float(res.get("xsl",0))/10000))
+    conn.commit()
+    conn.close()
+    print(f"💾 成功写入 {len(data_list)} 条数据。")
 
 if __name__ == "__main__":
 
     init_db()
 
     fetch_and_store_data() 
-
-
-
-
-
