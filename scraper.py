@@ -96,7 +96,7 @@ def fetch_and_store_data():
 
         try:
 
-            browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
 
             page = browser.new_page()
 
@@ -311,3 +311,4 @@ if __name__ == "__main__":
     fetch_and_store_data() 
 
 driver.close() # 关闭浏览器
+
