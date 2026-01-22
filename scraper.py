@@ -118,9 +118,9 @@ def save_to_sqlite(data_list):
         val_percentage = safe_float(res.get("ssxslt", 0.0)) 
 
         cursor.execute('''
-            INSERT INTO reservoir_data (name, record_time, water_level, inflow, outflow, capacity_level, percentage)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (val_name, now, val_water_level, val_inflow, val_outflow, val_capacity, val_percentage))
+            INSERT INTO reservoir_data (name, record_time, water_level, inflow, outflow, capacity_level)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (val_name, now, val_water_level, val_inflow, val_outflow, val_capacity))
         
     conn.commit()
     conn.close()

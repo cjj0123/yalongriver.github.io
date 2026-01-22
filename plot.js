@@ -68,12 +68,11 @@ function renderCharts(allData) {
 
     Object.keys(groups).forEach(name => {
         const data = groups[name];
-
         const chartWrapper = document.createElement('div');
         chartWrapper.className = 'chart-container';
         chartWrapper.style.marginBottom = "50px";
         chartWrapper.innerHTML = `
-            <h2 style="text-align:center; color:#333;">${name} 水情实时监控</h2>
+            <h2 style="text-align:center;">${name} 水情监控</h2>
             <div id="chart-${name}" style="width: 100%; height: 500px;"></div>
         `;
         chartsArea.appendChild(chartWrapper);
@@ -82,61 +81,64 @@ function renderCharts(allData) {
 
         // 提取数据
         const times = data.map(item => item.record_time);
-        const capacities = data.map(item => item.capacity_level); // 储水量
-        const levels = data.map(item => item.water_level);       // 水位
-        const inflows = data.map(item => item.inflow);           // 入库
-        const outflows = data.map(item => item.outflow);         // 出库
+        const capacities = data.map(item => item.capacity_level); // 储水量 (亿m³)
+        const levels = data.map(item => item.water_level);       // 水位 (m)
+        const inflows = data.map(item => item.inflow);           // 入库 (m³/s)
+        const outflows = data.map(item => item.outflow);         // 出库 (m³/s)
 
         const option = {
-            title: { text: '储水量/水位 vs 流量趋势', left: 'center', textStyle: {fontSize: 14} },
             tooltip: {
                 trigger: 'axis',
                 axisPointer: { type: 'cross' }
             },
             legend: { 
                 data: ['储水量', '水位', '入库流量', '出库流量'],
-                top: 30
+                top: 25
             },
             grid: { left: '5%', right: '5%', bottom: '10%', containLabel: true },
-            xAxis: {
-                type: 'category',
-                boundaryGap: false,
-                data: times
-            },
+            xAxis: { type: 'category', boundaryGap: false, data: times },
             yAxis: [
                 {
                     type: 'value',
-                    name: '储水量/水位',
+                    name: '储水量(亿m³)',
                     position: 'left',
-                    // 如果数值很大，ECharts 会自动处理单位，或者你可以手动格式化
-                    axisLabel: { formatter: '{value}' }
+                    scale: true, // 关键：不从0开始，防止曲线被压扁
+                    axisLine: { show: true, lineStyle: { color: '#5470c6' } },
+                    axisLabel: { formatter: '{value} 亿' }
                 },
                 {
                     type: 'value',
-                    name: '流量 (m³/s)',
+                    name: '流量(m³/s)',
                     position: 'right',
-                    splitLine: { show: false },
-                    axisLabel: { formatter: '{value}' }
+                    axisLine: { show: true, lineStyle: { color: '#ee6666' } },
+                    axisLabel: { formatter: '{value}' },
+                    splitLine: { show: false }
+                },
+                {
+                    type: 'value',
+                    name: '水位(m)',
+                    position: 'left',
+                    offset: 60, // 将水位轴向左偏移，避免跟储水量重叠
+                    scale: true, 
+                    axisLine: { show: true, lineStyle: { color: '#91cc75' } },
+                    axisLabel: { formatter: '{value} m' },
+                    splitLine: { show: false }
                 }
             ],
             series: [
                 {
                     name: '储水量',
                     type: 'line',
+                    yAxisIndex: 0, // 使用第一个左轴
                     data: capacities,
                     smooth: true,
                     itemStyle: { color: '#5470c6' },
-                    // 面积填充，让储水量看起来更有“体量感”
-                    areaStyle: { 
-                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: 'rgba(84, 112, 198, 0.4)' },
-                            { offset: 1, color: 'rgba(84, 112, 198, 0.1)' }
-                        ])
-                    }
+                    areaStyle: { opacity: 0.2 }
                 },
                 {
                     name: '水位',
                     type: 'line',
+                    yAxisIndex: 2, // 使用偏移的左轴
                     data: levels,
                     smooth: true,
                     itemStyle: { color: '#91cc75' }
@@ -144,7 +146,7 @@ function renderCharts(allData) {
                 {
                     name: '入库流量',
                     type: 'line',
-                    yAxisIndex: 1, 
+                    yAxisIndex: 1, // 使用右轴
                     data: inflows,
                     smooth: true,
                     lineStyle: { width: 2, type: 'dashed' },
@@ -153,7 +155,7 @@ function renderCharts(allData) {
                 {
                     name: '出库流量',
                     type: 'line',
-                    yAxisIndex: 1,
+                    yAxisIndex: 1, // 使用右轴
                     data: outflows,
                     smooth: true,
                     lineStyle: { width: 2 },
