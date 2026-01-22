@@ -6,13 +6,12 @@ import datetime
 
 # --- 日志记录配置 ---
 
-log_file_path = 'scraper_log.txt'
+# --- 暂时注释掉这段代码，让错误显示在 GitHub 控制台 ---
+# log_file_path = 'scraper_log.txt'
+# sys.stdout = open(log_file_path, 'a', encoding='utf-8')
+# sys.stderr = open(log_file_path, 'a', encoding='utf-8')
 
-# 重定向标准输出和标准错误到日志文件
-
-sys.stdout = open(log_file_path, 'a', encoding='utf-8')
-
-sys.stderr = open(log_file_path, 'a', encoding='utf-8')
+print(f"\n--- Script started at: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
 
 
 
@@ -311,4 +310,5 @@ if __name__ == "__main__":
     fetch_and_store_data() 
 
 driver.close() # 关闭浏览器
+
 
