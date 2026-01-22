@@ -1,42 +1,35 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>雅砻江水位查询</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水库运行数据实时监测</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f4f7f6; color: #333; }
+        h1 { text-align: center; color: #0056b3; margin-bottom: 30px; }
+        .container { max-width: 1200px; margin: auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); padding: 20px; }
+        .reservoir-card { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 20px; padding: 15px; background-color: #fcfcfc; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .reservoir-card h2 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-top: 0; margin-bottom: 15px; }
+        .chart-container { width: 100%; height: 400px; margin-top: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .loading-text { text-align: center; font-size: 1.2em; color: #555; padding: 50px; }
+        .error-text { text-align: center; font-size: 1.2em; color: #dc3545; padding: 50px; }
+    </style>
 </head>
 <body>
-    <h1>雅砻江水位查询</h1>
-    <form action="{{ url_for('index') }}" method="post">
-        <label for="date">日期</label>
-        <input type="date" id="date" name="date">
-        <input type="submit" value="查询">
-    </form>
-    <h1>雅砻江水位图</h1>
-    {% for image in images %}
-        <img src="{{url_for('static', filename='images/' + image)}}" alt="image">
-    {% endfor %}
-    
-    {% for sheet_name, sheet_data in data.items() %}
-        <h1>{{ sheet_name }}</h1>
-        <table>
-            <thead>
-                <tr>
-                    {% for col in sheet_data.columns %}
-                        <th>{{ col }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for index, row in sheet_data.iterrows() %}
-                    <tr>
-                        {% for col in sheet_data.columns %}
-                            <td>{{ row[col] }}</td>
-                        {% endfor %}
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% endfor %}
+    <div class="container">
+        <h1>水库运行数据实时监测</h1>
+        <div id="data-loading" class="loading-text">
+            正在从 GitHub 加载数据... <br> (由于文件较大，可能需要一些时间，请耐心等待)
+        </div>
+        <div id="data-error" class="error-text" style="display: none;">
+            数据加载失败，请检查网络或数据源。
+        </div>
+        
+        <div id="charts-area"></div>
+    </div>
+
+    <script src="plot.js"></script>
 </body>
 </html>
-
-The code above is the template for the index page. The template is rendered by the index() function in the views.py file. The index() function is called when the user visits the index page. The index() function returns the rendered template to the browser.
