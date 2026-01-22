@@ -58,51 +58,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function renderCharts(allData) {
     const chartsArea = document.getElementById('charts-area');
-    chartsArea.innerHTML = ''; // 清空现有内容
+    chartsArea.innerHTML = ''; 
 
-    // 1. 数据按水库名称分组
+    // 1. 按水库名称分组
     const groups = allData.reduce((acc, row) => {
-        if (!acc[row.name]) {
-            acc[row.name] = [];
-        }
+        if (!acc[row.name]) acc[row.name] = [];
         acc[row.name].push(row);
         return acc;
     }, {});
 
-    console.log("识别到的水库列表:", Object.keys(groups));
-
-    // 2. 遍历每个水库，创建一个图表
     Object.keys(groups).forEach(name => {
         const data = groups[name];
 
-        // 创建图表容器外层
+        // 创建容器
         const chartWrapper = document.createElement('div');
         chartWrapper.className = 'chart-container';
-        chartWrapper.innerHTML = `<h3>${name}</h3><div id="chart-${name}" style="width: 100%; height: 400px;"></div>`;
+        chartWrapper.style.marginBottom = "50px"; // 增加间距
+        chartWrapper.innerHTML = `
+            <h2 style="text-align:center; color:#333;">${name} 水情实时监控</h2>
+            <div id="chart-${name}" style="width: 100%; height: 500px;"></div>
+        `;
         chartsArea.appendChild(chartWrapper);
 
-        // 初始化 ECharts
-        const chartDom = document.getElementById(`chart-${name}`);
-        const myChart = echarts.init(chartDom);
+        const myChart = echarts.init(document.getElementById(`chart-${name}`));
 
-        // 准备坐标轴数据
+        // 提取数据
         const times = data.map(item => item.record_time);
-        const percentages = data.map(item => item.percentage); // 蓄水率
-        const levels = data.map(item => item.water_level);     // 水位
+        const percentages = data.map(item => item.percentage);
+        const levels = data.map(item => item.water_level);
+        const inflows = data.map(item => item.inflow);   // 入库流量
+        const outflows = data.map(item => item.outflow); // 出库流量
 
         const option = {
+            title: { text: '水位/蓄水率 vs 流量趋势', left: 'center', textStyle: {fontSize: 14} },
             tooltip: {
                 trigger: 'axis',
-                formatter: function (params) {
-                    let res = params[0].name + '<br/>';
-                    params.forEach(item => {
-                        res += `${item.seriesName}: ${item.value} ${item.seriesName === '蓄水率' ? '%' : 'm'}<br/>`;
-                    });
-                    return res;
-                }
+                axisPointer: { type: 'cross' }
             },
-            legend: { data: ['蓄水率', '水位'] },
-            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            legend: { 
+                data: ['蓄水率', '水位', '入库流量', '出库流量'],
+                top: 30
+            },
+            grid: { left: '5%', right: '5%', bottom: '10%', containLabel: true },
             xAxis: {
                 type: 'category',
                 boundaryGap: false,
@@ -111,15 +108,16 @@ function renderCharts(allData) {
             yAxis: [
                 {
                     type: 'value',
-                    name: '蓄水率(%)',
-                    min: 0,
-                    max: 100,
-                    axisLabel: { formatter: '{value} %' }
+                    name: '水位/百分比',
+                    position: 'left',
+                    axisLabel: { formatter: '{value}' }
                 },
                 {
                     type: 'value',
-                    name: '水位(m)',
-                    splitLine: { show: false }
+                    name: '流量 (m³/s)',
+                    position: 'right',
+                    splitLine: { show: false }, // 右侧轴不重复画网格线
+                    axisLabel: { formatter: '{value}' }
                 }
             ],
             series: [
@@ -128,27 +126,38 @@ function renderCharts(allData) {
                     type: 'line',
                     data: percentages,
                     smooth: true,
-                    areaStyle: {
-                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: 'rgba(58, 77, 233, 0.8)' },
-                            { offset: 1, color: 'rgba(58, 77, 233, 0.1)' }
-                        ])
-                    }
+                    itemStyle: { color: '#5470c6' },
+                    areaStyle: { opacity: 0.1 }
                 },
                 {
                     name: '水位',
                     type: 'line',
-                    yAxisIndex: 1,
                     data: levels,
                     smooth: true,
-                    lineStyle: { color: '#ff7ed1' }
+                    itemStyle: { color: '#91cc75' }
+                },
+                {
+                    name: '入库流量',
+                    type: 'line',
+                    yAxisIndex: 1, // 使用右侧 Y 轴
+                    data: inflows,
+                    smooth: true,
+                    lineStyle: { width: 3, type: 'dashed' },
+                    itemStyle: { color: '#fac858' }
+                },
+                {
+                    name: '出库流量',
+                    type: 'line',
+                    yAxisIndex: 1, // 使用右侧 Y 轴
+                    data: outflows,
+                    smooth: true,
+                    lineStyle: { width: 3 },
+                    itemStyle: { color: '#ee6666' }
                 }
             ]
         };
 
         myChart.setOption(option);
-
-        // 响应式窗口大小变化
         window.addEventListener('resize', () => myChart.resize());
     });
 }
