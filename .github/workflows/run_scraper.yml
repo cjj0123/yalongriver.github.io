@@ -35,9 +35,11 @@ jobs:
 
       - name: Commit and Push changes
         run: |
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          # 将生成的数据库文件或日志添加到仓库
-          git add reservoirs.db scraper_log.txt || echo "No changes to commit"
-          git commit -m "Update reservoir data: $(date)" || echo "No changes to commit"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          # 这一步确保把 db 文件加入暂存区
+          git add reservoirs.db scraper_log.txt || true 
+          # 提交更改
+          git commit -m "Auto-update reservoir data" || echo "No changes to commit"
+          # 推送回仓库
           git push
