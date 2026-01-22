@@ -57,7 +57,98 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function renderCharts(allData) {
-    // 这里放你之前的分组和 ECharts 渲染逻辑
-    console.log("准备渲染图表，数据量:", allData.length);
-    // ... (此处省略重复的渲染代码，请保留你之前 plot.js 里的 render 逻辑)
+    const chartsArea = document.getElementById('charts-area');
+    chartsArea.innerHTML = ''; // 清空现有内容
+
+    // 1. 数据按水库名称分组
+    const groups = allData.reduce((acc, row) => {
+        if (!acc[row.name]) {
+            acc[row.name] = [];
+        }
+        acc[row.name].push(row);
+        return acc;
+    }, {});
+
+    console.log("识别到的水库列表:", Object.keys(groups));
+
+    // 2. 遍历每个水库，创建一个图表
+    Object.keys(groups).forEach(name => {
+        const data = groups[name];
+
+        // 创建图表容器外层
+        const chartWrapper = document.createElement('div');
+        chartWrapper.className = 'chart-container';
+        chartWrapper.innerHTML = `<h3>${name}</h3><div id="chart-${name}" style="width: 100%; height: 400px;"></div>`;
+        chartsArea.appendChild(chartWrapper);
+
+        // 初始化 ECharts
+        const chartDom = document.getElementById(`chart-${name}`);
+        const myChart = echarts.init(chartDom);
+
+        // 准备坐标轴数据
+        const times = data.map(item => item.record_time);
+        const percentages = data.map(item => item.percentage); // 蓄水率
+        const levels = data.map(item => item.water_level);     // 水位
+
+        const option = {
+            tooltip: {
+                trigger: 'axis',
+                formatter: function (params) {
+                    let res = params[0].name + '<br/>';
+                    params.forEach(item => {
+                        res += `${item.seriesName}: ${item.value} ${item.seriesName === '蓄水率' ? '%' : 'm'}<br/>`;
+                    });
+                    return res;
+                }
+            },
+            legend: { data: ['蓄水率', '水位'] },
+            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            xAxis: {
+                type: 'category',
+                boundaryGap: false,
+                data: times
+            },
+            yAxis: [
+                {
+                    type: 'value',
+                    name: '蓄水率(%)',
+                    min: 0,
+                    max: 100,
+                    axisLabel: { formatter: '{value} %' }
+                },
+                {
+                    type: 'value',
+                    name: '水位(m)',
+                    splitLine: { show: false }
+                }
+            ],
+            series: [
+                {
+                    name: '蓄水率',
+                    type: 'line',
+                    data: percentages,
+                    smooth: true,
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(58, 77, 233, 0.8)' },
+                            { offset: 1, color: 'rgba(58, 77, 233, 0.1)' }
+                        ])
+                    }
+                },
+                {
+                    name: '水位',
+                    type: 'line',
+                    yAxisIndex: 1,
+                    data: levels,
+                    smooth: true,
+                    lineStyle: { color: '#ff7ed1' }
+                }
+            ]
+        };
+
+        myChart.setOption(option);
+
+        // 响应式窗口大小变化
+        window.addEventListener('resize', () => myChart.resize());
+    });
 }
