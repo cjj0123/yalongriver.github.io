@@ -1,7 +1,7 @@
 name: Reservoir Data Scraper
 
 # 配置触发条件
-on:
+# on:
   schedule:
     # 这里的 cron 表达式代表：每 4 小时的第 0 分钟运行一次 (UTC时间)
     - cron: '0 */4 * * *'
