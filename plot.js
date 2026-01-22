@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 假设你的 GitHub Pages 仓库是 '你的用户名.github.io'
     // 并且 reservoirs.db 就在仓库根目录
     // 如果你的仓库名不是这样，请修改 baseURL
-    const baseURL = window.location.origin + window.location.pathname.replace('index.html', '');
+    const baseURL = https://cjj0123.github.io/yalongriver.github.io/
     const dbFilePath = baseURL + 'reservoirs.db';
 
     // 初始化 sql.js
