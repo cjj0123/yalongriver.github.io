@@ -78,224 +78,25 @@ def init_db():
 
 
 def fetch_and_store_data():
-
-    """使用Playwright自动化浏览器获取数据，并进行双重JSON解包"""
-
+    """使用Playwright自动化浏览器获取数据"""
     print("正在启动自动化浏览器...")
-
     with sync_playwright() as p:
-
         browser = None
-
         try:
-
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-
+            # --- 注意：下面这一行必须比 try 缩进 4 个空格 ---
+            browser = p.chromium.launch(
+                headless=True, 
+                args=['--no-sandbox', '--disable-setuid-sandbox']
+            )
             page = browser.new_page()
-
-            page.set_default_timeout(60000)
-
-
-
-            print(f"正在访问目标网站: {TARGET_URL}")
-
-            page.goto(TARGET_URL)
-
-
-
-            print("等待页面加载完成并定位关键元素...")
-
-            station_name_input = page.locator('input[placeholder="站名"]')
-
-            station_name_input.wait_for(state="visible")
-
-           
-
-            query_button = page.locator("button.blue_button:has-text('搜索')")
-
-            query_button.wait_for(state="visible")
-
-
-
-            print("成功定位到'站名'输入框和'搜索'按钮。")
-
-
-
-            all_data = []
-
-            for name in RESERVOIR_NAMES:
-
-                print(f"正在查询水库: {name}...")
-
-
-
-                station_name_input.fill("")
-
-                station_name_input.fill(name)
-
-               
-
-                page.wait_for_timeout(500)
-
-
-
-                with page.expect_response("**/gateway.do", timeout=15000) as response_info:
-
-                    query_button.click()
-
-
-
-                response = response_info.value
-
-                print(f"成功为'{name}'触发查询并捕获到网络响应！")
-
-
-
-                if response.ok:
-
-                    outer_data = response.json()
-
-                   
-
-                    # 【【【 关键的最终修正：双重JSON解包 】】】
-
-                    if outer_data.get('data') and isinstance(outer_data['data'], str):
-
-                        # 1. 先把'data'字段的值作为字符串取出来
-
-                        inner_json_string = outer_data['data']
-
-                        # 2. 对这个字符串再做一次JSON解析
-
-                        inner_data = json.loads(inner_json_string)
-
-                       
-
-                        # 3. 从解包后的数据里提取我们真正要的列表
-
-                        if inner_data.get('result', {}).get('data', {}).get('list'):
-
-                            reservoir_list = inner_data['result']['data']['list']
-
-                            found_exact_match = False
-
-                            for item in reservoir_list:
-
-                                # 【【【 关键的最终修正：使用解包后的正确键名 】】】
-
-                                if item.get('zhanming') == name:
-
-                                    all_data.append(item)
-
-                                    found_exact_match = True
-
-                                    print(f"-> 成功解析到 {name} 的精确数据。")
-
-                                    # 为了获取最新的数据，我们只取第一条
-
-                                    break
-
-                            if not found_exact_match:
-
-                                print(f"-> 警告：查询 {name} 后，在返回结果中未找到精确匹配项。")
-
-                        else:
-
-                            print(f"-> 警告：在解包后的JSON中未找到数据列表。")
-
-                    else:
-
-                        print(f"-> 警告：查询 {name} 后，响应中未找到预期的'data'字符串。")
-
-                else:
-
-                    print(f"-> 错误：查询 {name} 时，网络请求失败，状态码: {response.status}")
-
-
-
-            # --- 数据存储逻辑 ---
-
-            if not all_data:
-
-                print("\n操作完成：未能获取到任何指定水库的数据。")
-
-            else:
-
-                print("\n操作完成：开始将所有捕获的数据存入数据库...")
-
-                conn = sqlite3.connect(DB_FILE)
-
-                cursor = conn.cursor()
-
-                now = datetime.datetime.now()
-
-               
-
-                for reservoir in all_data:
-
-                    # 【【【 关键的最终修正：使用解包后的正确键名 】】】
-
-                    r_name = reservoir.get("zhanming")
-
-                    water_level_str = reservoir.get("ksw")
-
-                    inflow_str = reservoir.get("rkll")
-
-                    outflow_str = reservoir.get("ckll")
-
-                    # 蓄水量在您的日志里是 xsl，而不是之前猜测的 w 或中文
-
-                    capacity_level_str = reservoir.get("xsl")
-
-                   
-
-                    water_level = float(water_level_str) if water_level_str and water_level_str != "--" else None
-
-                    inflow = float(inflow_str) if inflow_str and inflow_str != "--" else None
-
-                    outflow = float(outflow_str) if outflow_str and outflow_str != "--" else None
-
-                    # 蓄水量单位是万立方米，我们需要换算成亿立方米
-
-                    capacity_level = float(capacity_level_str) / 10000 if capacity_level_str and capacity_level_str != "--" else None
-
-                   
-
-                    cursor.execute('''
-
-                        INSERT INTO reservoir_data (name, record_time, water_level, inflow, outflow, capacity_level)
-
-                        VALUES (?, ?, ?, ?, ?, ?)
-
-                    ''', (r_name, now, water_level, inflow, outflow, capacity_level))
-
-                   
-
-                    print(f"-> 成功存储数据: {r_name} (水位: {water_level})")
-
-               
-
-                conn.commit()
-
-                conn.close()
-
-                print("所有数据已成功存入数据库！")
-
-
-
+            # ... 后续代码也要保持同样的缩进层级 ...
+            
         except Exception as e:
-
             print(f"自动化浏览器在执行过程中发生严重错误: {e}")
-
         finally:
-
             if browser and browser.is_connected():
-
                 browser.close()
-
                 print("浏览器已关闭。")
-
-
 
 if __name__ == "__main__":
 
@@ -304,6 +105,7 @@ if __name__ == "__main__":
     fetch_and_store_data() 
 
 driver.close() # 关闭浏览器
+
 
 
 
