@@ -3,33 +3,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const errorDiv = document.getElementById('data-error');
     const chartsArea = document.getElementById('charts-area');
 
-    // 自动获取数据库路径
-    const dbFilePath = './reservoirs.db?' + new Date().getTime(); // 加时间戳防止缓存
+    // 自动获取数据库路径，加时间戳防止缓存
+    const dbFilePath = './reservoirs.db?' + new Date().getTime();
 
     try {
+        // 1. 初始化 SQL.js
         const SQL = await initSqlJs({ 
             locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` 
         });
 
         console.log("正在下载数据库文件...");
         const response = await fetch(dbFilePath);
-        if (!response.ok) throw new Error("无法获取数据库文件，请确认 reservoirs.db 是否在仓库根目录。");
+        if (!response.ok) throw new Error("无法获取数据库文件，请确认 reservoirs.db 是否在仓库中。");
         
         const buffer = await response.arrayBuffer();
         const db = new SQL.Database(new Uint8Array(buffer));
 
-        // --- 调试代码：检查数据库结构 ---
-        const tableCheck = db.exec("SELECT name FROM sqlite_master WHERE type='table';");
-        console.log("数据库中的表:", tableCheck);
-
-        if (tableCheck.length === 0 || tableCheck[0].values.length === 0) {
-            throw new Error("数据库是空的（没有任何表）。");
-        }
-
-        const rowCount = db.exec("SELECT COUNT(*) FROM reservoir_data;");
-        console.log("数据总行数:", rowCount[0].values[0][0]);
-        // ------------------------------
-
+        // 2. 查询数据
         const stmt = db.prepare("SELECT * FROM reservoir_data ORDER BY record_time ASC");
         const allData = [];
         while (stmt.step()) {
@@ -38,20 +28,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         stmt.free();
 
         if (allData.length === 0) {
-            loadingDiv.style.display = 'none';
-            errorDiv.innerHTML = "数据库已找到，但 <b>reservoir_data</b> 表中没有任何记录。<br>请检查爬虫是否成功写入了数据。";
-            errorDiv.style.display = 'block';
-            return;
+            throw new Error("数据库中没有记录。");
         }
 
-        // 数据分组逻辑 (保持不变...)
+        // 3. 渲染图表
         renderCharts(allData);
         loadingDiv.style.display = 'none';
 
     } catch (error) {
-        console.error("详细错误信息:", error);
+        console.error("详细错误:", error);
         loadingDiv.style.display = 'none';
-        errorDiv.textContent = `失败: ${error.message}`;
+        errorDiv.textContent = `加载失败: ${error.message}`;
         errorDiv.style.display = 'block';
     }
 });
@@ -60,6 +47,7 @@ function renderCharts(allData) {
     const chartsArea = document.getElementById('charts-area');
     chartsArea.innerHTML = ''; 
 
+    // 按水库名称分组
     const groups = allData.reduce((acc, row) => {
         if (!acc[row.name]) acc[row.name] = [];
         acc[row.name].push(row);
@@ -68,23 +56,24 @@ function renderCharts(allData) {
 
     Object.keys(groups).forEach(name => {
         const data = groups[name];
-        const chartWrapper = document.createElement('div');
-        chartWrapper.className = 'chart-container';
-        chartWrapper.style.marginBottom = "50px";
-        chartWrapper.innerHTML = `
-            <h2 style="text-align:center;">${name} 水情监控</h2>
-            <div id="chart-${name}" style="width: 100%; height: 500px;"></div>
+
+        // 1. 创建卡片容器 (对应你 HTML 中的 reservoir-card)
+        const card = document.createElement('div');
+        card.className = 'reservoir-card';
+        card.innerHTML = `
+            <h2>${name} 水库运行实时监测</h2>
+            <div id="chart-${name}" class="chart-container" style="height: 500px;"></div>
         `;
-        chartsArea.appendChild(chartWrapper);
+        chartsArea.appendChild(card);
 
         const myChart = echarts.init(document.getElementById(`chart-${name}`));
 
         // 提取数据
         const times = data.map(item => item.record_time);
-        const capacities = data.map(item => item.capacity_level); // 储水量 (亿m³)
-        const levels = data.map(item => item.water_level);       // 水位 (m)
-        const inflows = data.map(item => item.inflow);           // 入库 (m³/s)
-        const outflows = data.map(item => item.outflow);         // 出库 (m³/s)
+        const capacities = data.map(item => item.capacity_level); // 亿m³
+        const levels = data.map(item => item.water_level);       // m
+        const inflows = data.map(item => item.inflow);           // m³/s
+        const outflows = data.map(item => item.outflow);         // m³/s
 
         const option = {
             tooltip: {
@@ -93,35 +82,47 @@ function renderCharts(allData) {
             },
             legend: { 
                 data: ['储水量', '水位', '入库流量', '出库流量'],
-                top: 25
+                top: 0
             },
-            grid: { left: '5%', right: '5%', bottom: '10%', containLabel: true },
-            xAxis: { type: 'category', boundaryGap: false, data: times },
+            grid: { 
+                left: '10%', 
+                right: '10%', 
+                bottom: '15%', 
+                top: '15%',
+                containLabel: true 
+            },
+            xAxis: { 
+                type: 'category', 
+                boundaryGap: false, 
+                data: times,
+                axisLabel: {
+                    formatter: (value) => value.split(' ')[0] + '\n' + (value.split(' ')[1] || ''),
+                    rotate: 0
+                }
+            },
             yAxis: [
                 {
                     type: 'value',
                     name: '储水量(亿m³)',
                     position: 'left',
-                    scale: true, // 关键：不从0开始，防止曲线被压扁
+                    scale: true, // 不从0开始，让波动更明显
                     axisLine: { show: true, lineStyle: { color: '#5470c6' } },
-                    axisLabel: { formatter: '{value} 亿' }
+                    axisLabel: { formatter: '{value}' }
                 },
                 {
                     type: 'value',
                     name: '流量(m³/s)',
                     position: 'right',
                     axisLine: { show: true, lineStyle: { color: '#ee6666' } },
-                    axisLabel: { formatter: '{value}' },
                     splitLine: { show: false }
                 },
                 {
                     type: 'value',
                     name: '水位(m)',
                     position: 'left',
-                    offset: 60, // 将水位轴向左偏移，避免跟储水量重叠
-                    scale: true, 
+                    offset: 70, // 将第三个轴向左偏移，防止重叠
+                    scale: true,
                     axisLine: { show: true, lineStyle: { color: '#91cc75' } },
-                    axisLabel: { formatter: '{value} m' },
                     splitLine: { show: false }
                 }
             ],
@@ -129,16 +130,16 @@ function renderCharts(allData) {
                 {
                     name: '储水量',
                     type: 'line',
-                    yAxisIndex: 0, // 使用第一个左轴
+                    yAxisIndex: 0,
                     data: capacities,
                     smooth: true,
-                    itemStyle: { color: '#5470c6' },
-                    areaStyle: { opacity: 0.2 }
+                    areaStyle: { opacity: 0.1 },
+                    itemStyle: { color: '#5470c6' }
                 },
                 {
                     name: '水位',
                     type: 'line',
-                    yAxisIndex: 2, // 使用偏移的左轴
+                    yAxisIndex: 2,
                     data: levels,
                     smooth: true,
                     itemStyle: { color: '#91cc75' }
@@ -146,7 +147,7 @@ function renderCharts(allData) {
                 {
                     name: '入库流量',
                     type: 'line',
-                    yAxisIndex: 1, // 使用右轴
+                    yAxisIndex: 1,
                     data: inflows,
                     smooth: true,
                     lineStyle: { width: 2, type: 'dashed' },
@@ -155,16 +156,16 @@ function renderCharts(allData) {
                 {
                     name: '出库流量',
                     type: 'line',
-                    yAxisIndex: 1, // 使用右轴
+                    yAxisIndex: 1,
                     data: outflows,
                     smooth: true,
-                    lineStyle: { width: 2 },
                     itemStyle: { color: '#ee6666' }
                 }
             ]
         };
 
         myChart.setOption(option);
+        // 响应式
         window.addEventListener('resize', () => myChart.resize());
     });
 }

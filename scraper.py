@@ -111,11 +111,9 @@ def save_to_sqlite(data_list):
         val_water_level = safe_float(res.get("ksw"))
         val_inflow = safe_float(res.get("rkll"))
         val_outflow = safe_float(res.get("ckll"))
-        val_capacity = safe_float(res.get("xsl")) # 这里的单位请根据原始数据判断
-        
-        # 临时处理：如果没有蓄水率字段，我们先存为 0，或者根据水位计算
-        # 如果接口有 'xslt' 或类似的百分比字段，请替换下面的 res.get("")
-        val_percentage = safe_float(res.get("ssxslt", 0.0)) 
+        # 核心修改：xsl / 100 转换为亿立方米
+        raw_xsl = safe_float(res.get("xsl"))
+        val_capacity = raw_xsl / 100.0  
 
         cursor.execute('''
             INSERT INTO reservoir_data (name, record_time, water_level, inflow, outflow, capacity_level)
