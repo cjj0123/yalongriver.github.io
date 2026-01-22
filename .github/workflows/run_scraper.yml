@@ -37,9 +37,18 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # 这一步确保把 db 文件加入暂存区
-          git add reservoirs.db scraper_log.txt || true 
-          # 提交更改
-          git commit -m "Auto-update reservoir data" || echo "No changes to commit"
-          # 推送回仓库
-          git push
+          
+          # 1. 尝试拉取远程更新，防止冲突
+          git pull origin main --rebase
+
+          # 2. 只有当文件存在时才添加 (修复你的报错关键)
+          if [ -f "reservoirs.db" ]; then git add reservoirs.db; fi
+          if [ -f "scraper_log.txt" ]; then git add scraper_log.txt; fi
+
+          # 3. 检查是否有内容需要提交
+          if git diff --staged --quiet; then
+            echo "没有发现数据更新，跳过提交。"
+          else
+            git commit -m "自动更新水库数据: $(date +'%Y-%m-%d %H:%M')"
+            git push origin main
+          fi
