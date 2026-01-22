@@ -104,8 +104,5 @@ if __name__ == "__main__":
 
     fetch_and_store_data() 
 
-driver.close() # 关闭浏览器
-
-
 
 
