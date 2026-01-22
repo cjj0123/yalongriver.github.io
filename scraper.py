@@ -156,8 +156,20 @@ def save_to_sqlite(data_list):
     conn.close()
     print(f"💾 成功写入 {len(data_list)} 条数据。")
 
+import subprocess
+
+def git_push_data():
+    """本地运行完后自动提交到 GitHub"""
+    try:
+        print("正在同步数据到 GitHub...")
+        subprocess.run(["git", "add", "reservoirs.db"], check=True)
+        subprocess.run(["git", "commit", "-m", f"Manual Update: {datetime.datetime.now()}"], check=True)
+        subprocess.run(["git", "push"], check=True)
+        print("🚀 数据已成功同步到 GitHub Pages！")
+    except Exception as e:
+        print(f"❌ 同步失败: {e}")
+
 if __name__ == "__main__":
-
     init_db()
-
-    fetch_and_store_data() 
+    fetch_and_store_data()
+    git_push_data() # 执行完抓取后自动推送
