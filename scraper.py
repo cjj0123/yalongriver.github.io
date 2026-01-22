@@ -81,13 +81,20 @@ def fetch_and_store_data():
     print("🚀 启动自动化浏览器...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
-        context = browser.new_context()
+        context = browser.new_context(
+           user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+           viewport={'width': 1280, 'height': 800}
+        )
         page = context.new_page()
         
         try:
             print(f"🔗 正在访问: {TARGET_URL}")
             # 改为 networkidle，确保网络请求基本加载完
-            page.goto(TARGET_URL, wait_until="networkidle", timeout=60000)
+        try:
+            print(f"🔗 正在尝试访问 (策略：domcontentloaded): {TARGET_URL}")
+            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            print(f"⚠️ 页面加载超时，但我们将尝试继续定位元素... {e}")
 
             # 增加显式等待，防止页面空白
             page.wait_for_selector('input[placeholder="站名"]', timeout=30000)
@@ -133,6 +140,7 @@ if __name__ == "__main__":
     init_db()
 
     fetch_and_store_data() 
+
 
 
 
