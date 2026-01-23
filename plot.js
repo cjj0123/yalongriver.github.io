@@ -45,68 +45,100 @@ document.addEventListener('DOMContentLoaded', async () => {
             const chart = echarts.init(document.getElementById(`chart_${name}`));
             
             const option = {
+                title: { text: name + ' 运行详情', left: 'center' },
                 tooltip: {
                     trigger: 'axis',
-                    axisPointer: { type: 'cross' }
+                    axisPointer: { type: 'shadow' }
                 },
-                legend: { data: ['水位', '蓄量', '入库流量', '出库流量'], bottom: 0 },
-                grid: { top: '15%', left: '5%', right: '8%', bottom: '15%' },
-                xAxis: {
-                    type: 'category',
-                    data: grouped[name].time,
-                    axisLabel: { 
-                        formatter: (val) => val.includes(' ') ? val.split(' ')[0] + '\n' + val.split(' ')[1] : val 
-                    }
-                },
-                yAxis: [
-                    {
-                        type: 'value',
-                        name: '水位 (m)',
-                        position: 'left',
-                        scale: true, // 核心：让水位坐标轴不从0开始，使其波动明显
-                        axisLine: { show: true, lineStyle: { color: '#5470c6' } },
-                        splitLine: { show: false }
+                // 四个指标的图例
+                legend: { data: ['水位', '蓄量', '入库', '出库'], bottom: 0 },
+                
+                // 核心：定义两个绘图区域
+                grid: [
+                    { left: '8%', right: '8%', top: '10%', height: '45%' }, // 上图：水位蓄量
+                    { left: '8%', right: '8%', top: '65%', height: '25%' }  // 下图：流量
+                ],
+                
+                xAxis: [
+                    { 
+                        type: 'category', 
+                        data: grouped[name].time, 
+                        gridIndex: 0, 
+                        axisLabel: { show: false }, // 上图隐藏 X 轴文字
+                        axisTick: { show: false }
                     },
-                    {
-                        type: 'value',
-                        name: '蓄量 / 流量',
-                        position: 'right',
-                        axisLine: { show: true, lineStyle: { color: '#91cc75' } },
-                        axisLabel: { formatter: '{value}' }
+                    { 
+                        type: 'category', 
+                        data: grouped[name].time, 
+                        gridIndex: 1, 
+                        axisLabel: { formatter: (val) => val.split(' ')[0] } // 下图显示日期
                     }
                 ],
+                
+                yAxis: [
+                    // 上图的 Y 轴
+                    { 
+                        name: '水位 (m)', 
+                        type: 'value', 
+                        gridIndex: 0, 
+                        scale: true, 
+                        splitLine: { show: true, lineStyle: { type: 'dashed' } } 
+                    },
+                    { 
+                        name: '蓄量 (亿m³)', 
+                        type: 'value', 
+                        gridIndex: 0, 
+                        position: 'right', 
+                        scale: true,
+                        splitLine: { show: false } 
+                    },
+                    // 下图的 Y 轴
+                    { 
+                        name: '流量 (m³/s)', 
+                        type: 'value', 
+                        gridIndex: 1, 
+                        splitArea: { show: true } 
+                    }
+                ],
+                
                 series: [
                     {
                         name: '水位',
                         type: 'line',
-                        data: grouped[name].water,
+                        xAxisIndex: 0,
                         yAxisIndex: 0,
-                        itemStyle: { color: '#5470c6' },
-                        z: 10 // 让水位线显示在最上层
+                        data: grouped[name].water,
+                        itemStyle: { color: '#0056b3' },
+                        lineStyle: { width: 3 },
+                        z: 5
                     },
                     {
                         name: '蓄量',
                         type: 'line',
-                        smooth: true,
-                        data: grouped[name].capacity,
+                        xAxisIndex: 0,
                         yAxisIndex: 1,
-                        areaStyle: { opacity: 0.15 }, // 增加面积阴影，视觉上更好区分
+                        data: grouped[name].capacity,
+                        smooth: true,
+                        areaStyle: { color: 'rgba(250, 200, 88, 0.2)' },
                         itemStyle: { color: '#fac858' }
                     },
                     {
-                        name: '入库流量',
+                        name: '入库',
                         type: 'line',
+                        xAxisIndex: 1,
+                        yAxisIndex: 2,
                         data: grouped[name].inflow,
-                        yAxisIndex: 1,
-                        lineStyle: { type: 'dashed', width: 1 },
-                        itemStyle: { color: '#91cc75' }
+                        symbol: 'none',
+                        itemStyle: { color: '#91cc75' },
+                        areaStyle: { opacity: 0.1 }
                     },
                     {
-                        name: '出库流量',
+                        name: '出库',
                         type: 'line',
+                        xAxisIndex: 1,
+                        yAxisIndex: 2,
                         data: grouped[name].outflow,
-                        yAxisIndex: 1,
-                        lineStyle: { type: 'dashed', width: 1 },
+                        symbol: 'none',
                         itemStyle: { color: '#ee6666' }
                     }
                 ]
