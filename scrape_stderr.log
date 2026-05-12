@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/jijunchen/Documents/Projects/雅砻江水位监测/scraper.py", line 7, in <module>
+    from playwright.sync_api import sync_playwright
+ModuleNotFoundError: No module named 'playwright'
