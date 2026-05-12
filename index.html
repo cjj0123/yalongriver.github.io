@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雅砻江三大水库运行数据实时监测</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js"></script>
+    <style>
+        body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; color: #333; }
+        h1 { text-align: center; color: #1890ff; margin-bottom: 10px; }
+        .update-time { text-align: center; color: #888; font-size: 0.9em; margin-bottom: 30px; }
+        .container { max-width: 1200px; margin: auto; }
+        .reservoir-card { 
+            background: #fff; 
+            border-radius: 12px; 
+            margin-bottom: 40px; 
+            padding: 30px; 
+            box-shadow: 0 8px 30px rgba(0,0,0,0.05); 
+        }
+        .chart-container { height: 650px; width: 100%; }
+        .loading-text { text-align: center; font-size: 1.1em; color: #666; padding: 100px; }
+        .error-text { text-align: center; color: #ff4d4f; padding: 50px; border: 1px dashed #ff4d4f; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>雅砻江三大水库运行数据实时监测</h1>
+        <div id="last-sync" class="update-time"></div>
+        
+        <div id="data-loading" class="loading-text">
+            📦 正在同步数据库文件，请稍候...
+        </div>
+        
+        <div id="data-error" class="error-text" style="display: none;"></div>
+        
+        <div id="charts-area"></div>
+    </div>
+
+    <script>
+        window.sqlJsConfig = {
+            locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+        };
+    </script>
+    <script src="plot.js"></script>
+</body>
+</html>
