@@ -1,0 +1,5 @@
+.DS_Store
+__pycache__/
+*.pyc
+scrape_stdout.log
+scrape_stderr.log

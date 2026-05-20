@@ -1,16 +1,47 @@
 #!/bin/bash
+set -euo pipefail
 
 # 进入脚本所在的目录
 cd "$(dirname "$0")"
 
+# launchd 的默认 PATH 很短，直接指定带有 playwright 的解释器
+PYTHON_BIN="${PYTHON_BIN:-/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11}"
+LOCK_DIR="/tmp/yalongriver_scraper.lock"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+cleanup() {
+  local exit_code=$?
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+  log "Job finished with exit code: $exit_code"
+  echo "------------------------------------------"
+}
+
+trap cleanup EXIT
+
 # 记录开始运行时间
 echo "------------------------------------------"
-echo "Job started at: $(date)"
+log "Job started"
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  log "另一个爬虫任务仍在运行，本次跳过，避免重复写库。"
+  exit 75
+fi
+
+if [ ! -x "$PYTHON_BIN" ]; then
+  log "Python 不存在或不可执行: $PYTHON_BIN"
+  exit 78
+fi
+
+if ! "$PYTHON_BIN" -c "from playwright.sync_api import sync_playwright" >/dev/null 2>&1; then
+  log "当前 Python 缺少 Playwright: $PYTHON_BIN"
+  log "可用这个命令修复: $PYTHON_BIN -m pip install playwright && $PYTHON_BIN -m playwright install chromium"
+  exit 78
+fi
 
 # 运行爬虫
-# 如果环境中有多个 python，建议使用绝对路径，例如 /usr/local/bin/python3
-# 这里先尝试直接用 python3
-python3 scraper.py
-
-echo "Job finished at: $(date)"
-echo "------------------------------------------"
+export GIT_TERMINAL_PROMPT=0
+export PYTHONUNBUFFERED=1
+"$PYTHON_BIN" scraper.py

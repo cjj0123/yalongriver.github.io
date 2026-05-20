@@ -129,28 +129,76 @@ def fetch_and_store_data():
                 new_rows = save_to_sqlite(all_data)
             else:
                 log("⚠️ 未抓取到有效数据。")
+                raise RuntimeError("未抓取到有效数据")
 
         except Exception as e:
             log(f"💥 严重错误: {e}")
+            raise
         finally:
             browser.close()
     return new_rows
 
 def git_push_data():
-    try:
-        repo_path = os.path.dirname(os.path.abspath(__file__))
-        os.chdir(repo_path)
+    repo_path = os.path.dirname(os.path.abspath(__file__))
 
+    def run_git(args, step_name, timeout=180):
+        env = os.environ.copy()
+        # 任何 git 交互都必须失败退出，避免 launchd / 定时任务长时间挂起。
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        result = subprocess.run(
+            args,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+        )
+        if result.stdout.strip():
+            log(f"📄 {step_name} stdout: {result.stdout.strip()}")
+        if result.returncode != 0:
+            if result.stderr.strip():
+                log(f"❌ {step_name} stderr: {result.stderr.strip()}")
+            raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
+        if result.stderr.strip():
+            log(f"⚠️ {step_name} stderr: {result.stderr.strip()}")
+
+    def push_with_retry():
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                log(f"📤 git push 尝试 {attempt}/3...")
+                run_git(["git", "push", "origin", "main"], "git push", timeout=300)
+                return
+            except subprocess.TimeoutExpired as e:
+                last_error = e
+                log(f"⏱️ git push 第 {attempt}/3 次超时。")
+            except subprocess.CalledProcessError as e:
+                last_error = e
+                log(f"❌ git push 第 {attempt}/3 次失败 (exit code {e.returncode})。")
+
+        raise last_error
+
+    try:
         log("🔄 正在推送更新至 GitHub...")
-        subprocess.run(["git", "add", "reservoirs.db"], check=True)
+        run_git(["git", "add", "reservoirs.db"], "git add")
 
         commit_msg = f"Auto update: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        subprocess.run(["git", "commit", "-m", commit_msg], check=True)
+        run_git(["git", "commit", "-m", commit_msg], "git commit")
 
-        subprocess.run(["git", "push"], check=True)
+        push_with_retry()
         log("🚀 数据同步成功！")
+    except subprocess.TimeoutExpired as e:
+        log(f"⏱️ Git 操作超时: {e.cmd}，已终止本次推送，避免任务卡死。")
+        raise
     except subprocess.CalledProcessError as e:
-        log(f"💡 Git 提示：跳过推送 (exit code {e.returncode})")
+        combined_output = f"{getattr(e, 'stdout', '')}\n{getattr(e, 'stderr', '')}".lower()
+        if isinstance(e.cmd, (list, tuple)) and len(e.cmd) >= 2 and e.cmd[1] == "commit":
+            if "nothing to commit" in combined_output or "working tree clean" in combined_output:
+                log("😴 Git 没有新的变更，跳过推送。")
+                return
+
+        log(f"💥 Git 同步失败 (exit code {e.returncode})")
+        raise
     except Exception as e:
         log(f"⚠️ Git 操作失败: {e}")
 
