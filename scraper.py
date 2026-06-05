@@ -88,7 +88,10 @@ def fetch_and_store_data():
     log("🚀 启动自动化浏览器...")
     new_rows = 0
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+        browser = p.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-setuid-sandbox', '--no-proxy-server']
+        )
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
