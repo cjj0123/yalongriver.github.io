@@ -42,6 +42,38 @@ def safe_float(value, default=0.0):
     except ValueError:
         return default
 
+def open_target_page(page, attempts=3):
+    """打开目标页面，带重试，避免偶发网络/渲染卡顿直接失败。"""
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            if attempt > 1:
+                log(f"🔁 重新访问页面 ({attempt}/{attempts})...")
+            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
+            return
+        except Exception as e:
+            last_error = e
+            log(f"⚠️ 页面访问失败 ({attempt}/{attempts}): {e}")
+            if attempt < attempts:
+                page.wait_for_timeout(3000)
+    raise last_error
+
+def wait_for_station_input(page, attempts=3):
+    """等待站名输入框可见，必要时刷新重试。"""
+    selector = 'input[placeholder="站名"]'
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            page.wait_for_selector(selector, state="visible", timeout=45000)
+            return page.locator(selector)
+        except Exception as e:
+            last_error = e
+            log(f"⚠️ 站名输入框未出现 ({attempt}/{attempts}): {e}")
+            if attempt < attempts:
+                page.reload(wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(3000)
+    raise last_error
+
 def save_to_sqlite(data_list):
     """将数据存入数据库，具备去重功能"""
     conn = sqlite3.connect(DB_FILE)
@@ -99,14 +131,13 @@ def fetch_and_store_data():
 
         try:
             log(f"🔗 正在访问页面...")
-            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
+            open_target_page(page)
 
             all_data = []
-            page.wait_for_selector('input[placeholder="站名"]', timeout=30000)
+            input_box = wait_for_station_input(page)
 
             for name in RESERVOIR_NAMES:
                 log(f"🔍 正在查询: {name}...")
-                input_box = page.locator('input[placeholder="站名"]')
                 input_box.fill("")
                 input_box.fill(name)
                 page.wait_for_timeout(1500)
