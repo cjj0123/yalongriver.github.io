@@ -251,6 +251,8 @@ def parse_xueqiu_reservoir_rows(text, source_url):
                 capacity_value = capacity_number * 100
             else:
                 capacity_value = capacity_number
+            if name == "桐子林" and capacity_value == 0:
+                capacity_value = None
 
         rows.append({
             "zhanming": name,
