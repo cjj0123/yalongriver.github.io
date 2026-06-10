@@ -77,7 +77,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     inflow: [],
                     outflow: [],
                     capacity: [],
-                    energy: [],
                     latestSource: '',
                     latestSourceUrl: '',
                     latestNote: ''
@@ -88,7 +87,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             grouped[name].inflow.push(valueOf(row, 'inflow'));
             grouped[name].outflow.push(valueOf(row, 'outflow'));
             grouped[name].capacity.push(valueOf(row, 'capacity_level'));
-            grouped[name].energy.push(valueOf(row, 'energy_level'));
             grouped[name].latestSource = valueOf(row, 'source') || '四川政务公开';
             grouped[name].latestSourceUrl = valueOf(row, 'source_url') || '';
             grouped[name].latestNote = valueOf(row, 'note') || '';
@@ -115,7 +113,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 3. 渲染图表
         reservoirNames.forEach(name => {
             const chartId = safeId(name);
-            const hasEnergy = grouped[name].energy.some(value => value !== null && value !== undefined);
             const sourceText = grouped[name].latestSourceUrl
                 ? `<a href="${grouped[name].latestSourceUrl}" target="_blank" rel="noopener">${grouped[name].latestSource}</a>`
                 : grouped[name].latestSource;
@@ -137,7 +134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     trigger: 'axis',
                     axisPointer: { type: 'shadow' }
                 },
-                legend: { data: hasEnergy ? ['水位', '蓄量', '蓄能', '入库', '出库'] : ['水位', '蓄量', '入库', '出库'], bottom: 0 },
+                legend: { data: ['水位', '蓄量', '入库', '出库'], bottom: 0 },
                 
                 // 核心：定义两个绘图区域
                 grid: [
@@ -178,15 +175,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         scale: true,
                         splitLine: { show: false } 
                     },
-                    {
-                        name: '蓄能 (亿千瓦时)',
-                        type: 'value',
-                        gridIndex: 0,
-                        position: 'right',
-                        offset: hasEnergy ? 55 : 0,
-                        scale: true,
-                        splitLine: { show: false }
-                    },
                     // 下图的 Y 轴
                     { 
                         name: '流量 (m³/s)', 
@@ -218,20 +206,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         itemStyle: { color: '#fac858' }
                     },
                     {
-                        name: '蓄能',
-                        type: 'line',
-                        xAxisIndex: 0,
-                        yAxisIndex: 2,
-                        data: grouped[name].energy,
-                        smooth: true,
-                        connectNulls: false,
-                        itemStyle: { color: '#9a60b4' }
-                    },
-                    {
                         name: '入库',
                         type: 'line',
                         xAxisIndex: 1,
-                        yAxisIndex: 3,
+                        yAxisIndex: 2,
                         data: grouped[name].inflow,
                         symbol: 'none',
                         itemStyle: { color: '#91cc75' },
@@ -241,7 +219,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         name: '出库',
                         type: 'line',
                         xAxisIndex: 1,
-                        yAxisIndex: 3,
+                        yAxisIndex: 2,
                         data: grouped[name].outflow,
                         symbol: 'none',
                         itemStyle: { color: '#ee6666' }

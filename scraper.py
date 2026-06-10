@@ -26,6 +26,7 @@ XUEQIU_STATUS_IDS = [
 ]
 XUEQIU_LOCAL_POST_DIR = "xueqiu_posts"
 XUEQIU_RESERVOIR_NAMES = ["两河口", "杨房沟", "锦屏一级", "官地", "二滩", "桐子林"]
+XUEQIU_FETCH_LIMIT = int(os.environ.get("XUEQIU_FETCH_LIMIT", "10"))
 
 def log(msg):
     """写入日志"""
@@ -204,10 +205,46 @@ def fetch_xueqiu_status_text(status_id):
     title = strip_tags(data.get("title", ""))
     return "\n".join(part for part in [title, text] if part), source_url
 
+def fetch_xueqiu_timeline_posts():
+    """用登录态读取纬班长时间线，自动发现最新雅砻江帖子。"""
+    cookie = os.environ.get("XUEQIU_COOKIE", "").strip()
+    if not cookie:
+        return []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+        "Referer": f"https://xueqiu.com/u/{XUEQIU_USER_ID}",
+        "Accept": "application/json,text/plain,*/*",
+        "Cookie": cookie,
+    }
+    url = (
+        "https://xueqiu.com/v4/statuses/user_timeline.json?"
+        f"user_id={urllib.parse.quote(XUEQIU_USER_ID)}&page=1&count={XUEQIU_FETCH_LIMIT}"
+    )
+    data = request_json(url, headers=headers)
+    statuses = data.get("statuses") or data.get("list") or []
+    posts = []
+    for item in statuses:
+        title = strip_tags(item.get("title", ""))
+        text = strip_tags(item.get("text", ""))
+        combined = "\n".join(part for part in [title, text] if part)
+        if "雅砻江主要库" not in combined:
+            continue
+        status_id = str(item.get("id") or item.get("status_id") or "")
+        source_url = f"https://xueqiu.com/{XUEQIU_USER_ID}/{status_id}" if status_id else f"https://xueqiu.com/u/{XUEQIU_USER_ID}"
+        posts.append((combined, source_url))
+    return posts
+
 def iter_xueqiu_text_sources():
     for path in sorted(glob.glob(os.path.join(XUEQIU_LOCAL_POST_DIR, "*.txt"))):
         with open(path, "r", encoding="utf-8") as f:
             yield f.read(), f"file://{os.path.abspath(path)}"
+
+    try:
+        for text, source_url in fetch_xueqiu_timeline_posts():
+            yield text, source_url
+    except Exception as e:
+        log(f"⚠️ 雪球时间线读取失败: {e}")
 
     for status_id in XUEQIU_STATUS_IDS:
         try:
@@ -216,7 +253,7 @@ def iter_xueqiu_text_sources():
             log(f"⚠️ 雪球帖子 {status_id} 读取失败: {e}")
 
 def parse_xueqiu_reservoir_rows(text, source_url):
-    """解析纬班长帖子中的“水位/蓄能/入库/出库”行。"""
+    """解析纬班长帖子中的“水位/蓄量/入库/出库”行。"""
     rows = []
     date_match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日', text)
     if date_match:
@@ -236,12 +273,11 @@ def parse_xueqiu_reservoir_rows(text, source_url):
             continue
         name = match.group(1).strip()
         water = re.search(r'水位\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*m?', chunk, re.I)
-        energy = re.search(r'蓄能\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*亿?千瓦时', chunk)
         capacity = re.search(r'蓄(?:水)?量(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*亿?m?[³3]?', chunk)
         inflow = re.search(r'入库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', chunk)
         outflow = re.search(r'出库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', chunk)
 
-        if not any([water, energy, capacity, inflow, outflow]):
+        if not any([water, capacity, inflow, outflow]):
             continue
 
         capacity_value = None
@@ -260,7 +296,7 @@ def parse_xueqiu_reservoir_rows(text, source_url):
             "rkll": inflow.group(1) if inflow else None,
             "ckll": outflow.group(1) if outflow else None,
             "xsl": capacity_value,
-            "energy_level": safe_float(energy.group(1), None) if energy else None,
+            "energy_level": None,
             "record_time": record_time,
             "source": XUEQIU_SOURCE,
             "source_url": source_url,
