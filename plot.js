@@ -1,10 +1,50 @@
+const SQL_JS_BASES = [
+    'https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/',
+    'https://unpkg.com/sql.js@1.8.0/dist/',
+    'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/'
+];
+
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`无法加载脚本：${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+async function loadSqlJs() {
+    if (typeof initSqlJs === 'function') {
+        return initSqlJs(window.sqlJsConfig);
+    }
+
+    const errors = [];
+    for (const baseUrl of SQL_JS_BASES) {
+        try {
+            await loadScript(`${baseUrl}sql-wasm.min.js`);
+            if (typeof initSqlJs !== 'function') {
+                throw new Error('sql-wasm.min.js 已加载但 initSqlJs 未注册');
+            }
+            return await initSqlJs({
+                locateFile: file => `${baseUrl}${file}`
+            });
+        } catch (err) {
+            errors.push(err.message);
+        }
+    }
+
+    throw new Error(`sql.js 加载失败，请检查网络或 CDN 访问：${errors.join('；')}`);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const loading = document.getElementById('data-loading');
     const errorDiv = document.getElementById('data-error');
     const chartsArea = document.getElementById('charts-area');
 
     try {
-        const SQL = await initSqlJs(window.sqlJsConfig);
+        const SQL = await loadSqlJs();
         
         // 1. 获取数据库文件（增加随机参数防止缓存）
         const response = await fetch('./reservoirs.db?t=' + new Date().getTime());
@@ -20,29 +60,59 @@ document.addEventListener('DOMContentLoaded', async () => {
         const columns = res[0].columns;
         const values = res[0].values;
         const grouped = {};
+        const col = (name) => columns.indexOf(name);
+        const valueOf = (row, name) => {
+            const index = col(name);
+            return index >= 0 ? row[index] : null;
+        };
+        const safeId = (name) => `chart_${encodeURIComponent(name).replace(/%/g, '')}`;
 
         values.forEach(row => {
-            const name = row[columns.indexOf('name')];
+            const name = valueOf(row, 'name');
             if (!grouped[name]) {
-                grouped[name] = { time: [], water: [], inflow: [], outflow: [], capacity: [] };
+                grouped[name] = {
+                    time: [],
+                    water: [],
+                    inflow: [],
+                    outflow: [],
+                    capacity: [],
+                    energy: [],
+                    latestSource: '',
+                    latestSourceUrl: '',
+                    latestNote: ''
+                };
             }
-            grouped[name].time.push(row[columns.indexOf('record_time')]);
-            grouped[name].water.push(row[columns.indexOf('water_level')]);
-            grouped[name].inflow.push(row[columns.indexOf('inflow')]);
-            grouped[name].outflow.push(row[columns.indexOf('outflow')]);
-            grouped[name].capacity.push(row[columns.indexOf('capacity_level')]);
+            grouped[name].time.push(valueOf(row, 'record_time'));
+            grouped[name].water.push(valueOf(row, 'water_level'));
+            grouped[name].inflow.push(valueOf(row, 'inflow'));
+            grouped[name].outflow.push(valueOf(row, 'outflow'));
+            grouped[name].capacity.push(valueOf(row, 'capacity_level'));
+            grouped[name].energy.push(valueOf(row, 'energy_level'));
+            grouped[name].latestSource = valueOf(row, 'source') || '四川政务公开';
+            grouped[name].latestSourceUrl = valueOf(row, 'source_url') || '';
+            grouped[name].latestNote = valueOf(row, 'note') || '';
         });
 
         loading.style.display = 'none';
 
         // 3. 渲染图表
         Object.keys(grouped).forEach(name => {
+            const chartId = safeId(name);
+            const hasEnergy = grouped[name].energy.some(value => value !== null && value !== undefined);
+            const sourceText = grouped[name].latestSourceUrl
+                ? `<a href="${grouped[name].latestSourceUrl}" target="_blank" rel="noopener">${grouped[name].latestSource}</a>`
+                : grouped[name].latestSource;
+            const noteText = grouped[name].latestNote ? `；${grouped[name].latestNote}` : '';
             const card = document.createElement('div');
             card.className = 'reservoir-card';
-            card.innerHTML = `<h2>${name} 水库</h2><div id="chart_${name}" class="chart-container"></div>`;
+            card.innerHTML = `
+                <h2>${name} 水库</h2>
+                <div class="meta-text">最新来源：${sourceText}${noteText}</div>
+                <div id="${chartId}" class="chart-container"></div>
+            `;
             chartsArea.appendChild(card);
 
-            const chart = echarts.init(document.getElementById(`chart_${name}`));
+            const chart = echarts.init(document.getElementById(chartId));
             
             const option = {
                 title: { text: name + ' 运行详情', left: 'center' },
@@ -50,8 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     trigger: 'axis',
                     axisPointer: { type: 'shadow' }
                 },
-                // 四个指标的图例
-                legend: { data: ['水位', '蓄量', '入库', '出库'], bottom: 0 },
+                legend: { data: hasEnergy ? ['水位', '蓄量', '蓄能', '入库', '出库'] : ['水位', '蓄量', '入库', '出库'], bottom: 0 },
                 
                 // 核心：定义两个绘图区域
                 grid: [
@@ -92,6 +161,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                         scale: true,
                         splitLine: { show: false } 
                     },
+                    {
+                        name: '蓄能 (亿千瓦时)',
+                        type: 'value',
+                        gridIndex: 0,
+                        position: 'right',
+                        offset: hasEnergy ? 55 : 0,
+                        scale: true,
+                        splitLine: { show: false }
+                    },
                     // 下图的 Y 轴
                     { 
                         name: '流量 (m³/s)', 
@@ -123,10 +201,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                         itemStyle: { color: '#fac858' }
                     },
                     {
+                        name: '蓄能',
+                        type: 'line',
+                        xAxisIndex: 0,
+                        yAxisIndex: 2,
+                        data: grouped[name].energy,
+                        smooth: true,
+                        connectNulls: false,
+                        itemStyle: { color: '#9a60b4' }
+                    },
+                    {
                         name: '入库',
                         type: 'line',
                         xAxisIndex: 1,
-                        yAxisIndex: 2,
+                        yAxisIndex: 3,
                         data: grouped[name].inflow,
                         symbol: 'none',
                         itemStyle: { color: '#91cc75' },
@@ -136,7 +224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         name: '出库',
                         type: 'line',
                         xAxisIndex: 1,
-                        yAxisIndex: 2,
+                        yAxisIndex: 3,
                         data: grouped[name].outflow,
                         symbol: 'none',
                         itemStyle: { color: '#ee6666' }

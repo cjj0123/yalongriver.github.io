@@ -4,6 +4,11 @@ import sqlite3
 import json
 import subprocess
 import os
+import re
+import glob
+import html
+import urllib.request
+import urllib.parse
 from playwright.sync_api import sync_playwright
 
 # --- 配置区 ---
@@ -11,6 +16,16 @@ TARGET_URL = "https://tftb.sczwfw.gov.cn:8085/hos-server/pub/jmas/jmasbucket/jmo
 DB_FILE = "reservoirs.db"
 RESERVOIR_NAMES = ["二滩", "锦屏一级", "官地"]
 LOG_FILE = "scrape.log"
+GOV_SOURCE = "四川政务公开"
+XUEQIU_SOURCE = "雪球@纬班长"
+XUEQIU_USER_ID = "4737961300"
+XUEQIU_STATUS_IDS = [
+    status_id.strip()
+    for status_id in os.environ.get("XUEQIU_STATUS_IDS", "393824168,393149445").split(",")
+    if status_id.strip()
+]
+XUEQIU_LOCAL_POST_DIR = "xueqiu_posts"
+XUEQIU_RESERVOIR_NAMES = ["两河口", "杨房沟", "锦屏一级", "官地", "二滩", "桐子林"]
 
 def log(msg):
     """写入日志"""
@@ -27,9 +42,17 @@ def init_db():
     # 检查字段是否存在
     cursor.execute("PRAGMA table_info(reservoir_data)")
     columns = [column[1] for column in cursor.fetchall()]
-    if 'percentage' not in columns:
-        cursor.execute('ALTER TABLE reservoir_data ADD COLUMN percentage REAL')
-        conn.commit()
+    migrations = {
+        'percentage': 'ALTER TABLE reservoir_data ADD COLUMN percentage REAL',
+        'source': "ALTER TABLE reservoir_data ADD COLUMN source TEXT DEFAULT '四川政务公开'",
+        'source_url': 'ALTER TABLE reservoir_data ADD COLUMN source_url TEXT',
+        'energy_level': 'ALTER TABLE reservoir_data ADD COLUMN energy_level REAL',
+        'note': 'ALTER TABLE reservoir_data ADD COLUMN note TEXT',
+    }
+    for column_name, sql in migrations.items():
+        if column_name not in columns:
+            cursor.execute(sql)
+    conn.commit()
     conn.close()
     log("✅ 数据库初始化完成。")
 
@@ -86,11 +109,33 @@ def save_to_sqlite(data_list):
         val_water_level = safe_float(res.get("ksw"))
         val_inflow = safe_float(res.get("rkll"))
         val_outflow = safe_float(res.get("ckll"))
-        val_capacity = safe_float(res.get("xsl")) / 100.0
+        val_capacity = None if res.get("xsl") is None else safe_float(res.get("xsl")) / 100.0
+        val_energy = res.get("energy_level")
+        val_source = res.get("source") or GOV_SOURCE
+        val_source_url = res.get("source_url")
+        val_note = res.get("note")
+        val_record_time = res.get("record_time") or now
 
         # --- 去重核心逻辑 ---
         cursor.execute('''
-            SELECT water_level, inflow, outflow, capacity_level 
+            SELECT water_level, inflow, outflow, capacity_level, energy_level
+            FROM reservoir_data
+            WHERE name = ? AND record_time = ?
+            ORDER BY id DESC LIMIT 1
+        ''', (val_name, val_record_time))
+        same_time_record = cursor.fetchone()
+
+        if same_time_record:
+            if (val_water_level == same_time_record[0] and
+                val_inflow == same_time_record[1] and
+                val_outflow == same_time_record[2] and
+                val_capacity == same_time_record[3] and
+                val_energy == same_time_record[4]):
+                log(f"⏭️ {val_name} {val_record_time} 已存在，跳过写入。")
+                continue
+
+        cursor.execute('''
+            SELECT water_level, inflow, outflow, capacity_level, energy_level
             FROM reservoir_data 
             WHERE name = ? 
             ORDER BY record_time DESC LIMIT 1
@@ -101,20 +146,141 @@ def save_to_sqlite(data_list):
             if (val_water_level == last_record[0] and 
                 val_inflow == last_record[1] and 
                 val_outflow == last_record[2] and 
-                val_capacity == last_record[3]):
+                val_capacity == last_record[3] and
+                val_energy == last_record[4]):
                 log(f"⏭️ {val_name} 数据未变化，跳过写入。")
                 continue
 
         cursor.execute('''
-            INSERT INTO reservoir_data (name, record_time, water_level, inflow, outflow, capacity_level)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (val_name, now, val_water_level, val_inflow, val_outflow, val_capacity))
+            INSERT INTO reservoir_data (
+                name, record_time, water_level, inflow, outflow, capacity_level,
+                energy_level, source, source_url, note
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            val_name, val_record_time, val_water_level, val_inflow, val_outflow,
+            val_capacity, val_energy, val_source, val_source_url, val_note
+        ))
         new_records_count += 1
-        log(f"✅ {val_name} 数据已更新: 水位 {val_water_level}m")
+        log(f"✅ {val_name} 数据已更新: 水位 {val_water_level}m，来源 {val_source}")
 
     conn.commit()
     conn.close()
     return new_records_count
+
+def strip_tags(value):
+    value = re.sub(r'<br\s*/?>', '\n', value, flags=re.I)
+    value = re.sub(r'</p\s*>', '\n', value, flags=re.I)
+    value = re.sub(r'<[^>]+>', '', value)
+    return html.unescape(value)
+
+def request_json(url, headers=None, timeout=20):
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode('utf-8')
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as e:
+            preview = strip_tags(body)[:120].replace("\n", " ")
+            raise RuntimeError(f"响应不是 JSON，可能被登录或滑块验证拦截: {preview}") from e
+
+def fetch_xueqiu_status_text(status_id):
+    """读取雪球帖子。公开接口常被 WAF/登录拦截；支持 XUEQIU_COOKIE 提升成功率。"""
+    source_url = f"https://xueqiu.com/{XUEQIU_USER_ID}/{status_id}"
+    cookie = os.environ.get("XUEQIU_COOKIE", "").strip()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+        "Referer": "https://xueqiu.com/",
+        "Accept": "application/json,text/plain,*/*",
+    }
+    if cookie:
+        headers["Cookie"] = cookie
+
+    api_url = f"https://xueqiu.com/statuses/show.json?id={urllib.parse.quote(status_id)}"
+    data = request_json(api_url, headers=headers)
+    if data.get("error_code"):
+        raise RuntimeError(f"雪球接口返回错误 {data.get('error_code')}: {data.get('error_description')}")
+    text = strip_tags(data.get("text", ""))
+    title = strip_tags(data.get("title", ""))
+    return "\n".join(part for part in [title, text] if part), source_url
+
+def iter_xueqiu_text_sources():
+    for path in sorted(glob.glob(os.path.join(XUEQIU_LOCAL_POST_DIR, "*.txt"))):
+        with open(path, "r", encoding="utf-8") as f:
+            yield f.read(), f"file://{os.path.abspath(path)}"
+
+    for status_id in XUEQIU_STATUS_IDS:
+        try:
+            yield fetch_xueqiu_status_text(status_id)
+        except Exception as e:
+            log(f"⚠️ 雪球帖子 {status_id} 读取失败: {e}")
+
+def parse_xueqiu_reservoir_rows(text, source_url):
+    """解析纬班长帖子中的“水位/蓄能/入库/出库”行。"""
+    rows = []
+    date_match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日', text)
+    if date_match:
+        y, m, d = map(int, date_match.groups())
+        record_time = f"{y:04d}-{m:02d}-{d:02d} 08:00:00"
+    else:
+        record_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    normalized_text = re.sub(r'[；;]', '\n', text)
+    known_names = "|".join(re.escape(name) for name in XUEQIU_RESERVOIR_NAMES)
+    name_pattern = rf'({known_names})(?:水库|水电站|水文站)?'
+    for chunk in normalized_text.splitlines():
+        if not chunk.strip():
+            continue
+        match = re.search(name_pattern, chunk)
+        if not match:
+            continue
+        name = match.group(1).strip()
+        water = re.search(r'水位\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*m?', chunk, re.I)
+        energy = re.search(r'蓄能\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*亿?千瓦时', chunk)
+        capacity = re.search(r'蓄(?:水)?量(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*亿?m?[³3]?', chunk)
+        inflow = re.search(r'入库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', chunk)
+        outflow = re.search(r'出库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', chunk)
+
+        if not any([water, energy, capacity, inflow, outflow]):
+            continue
+
+        capacity_value = None
+        if capacity:
+            capacity_number = safe_float(capacity.group(1), 0)
+            if "亿" in capacity.group(0):
+                capacity_value = capacity_number * 100
+            else:
+                capacity_value = capacity_number
+
+        rows.append({
+            "zhanming": name,
+            "ksw": water.group(1) if water else None,
+            "rkll": inflow.group(1) if inflow else None,
+            "ckll": outflow.group(1) if outflow else None,
+            "xsl": capacity_value,
+            "energy_level": safe_float(energy.group(1), None) if energy else None,
+            "record_time": record_time,
+            "source": XUEQIU_SOURCE,
+            "source_url": source_url,
+            "note": "雪球帖子解析",
+        })
+
+    deduped = {}
+    for row in rows:
+        deduped[row["zhanming"]] = row
+    return list(deduped.values())
+
+def fetch_xueqiu_supplemental_data():
+    all_rows = []
+    for text, source_url in iter_xueqiu_text_sources():
+        parsed = parse_xueqiu_reservoir_rows(text, source_url)
+        if parsed:
+            log(f"✅ 雪球补充源解析到 {len(parsed)} 条: {source_url}")
+            all_rows.extend(parsed)
+
+    if not all_rows:
+        log("⚠️ 雪球补充源未解析到有效数据。")
+    return all_rows
 
 def fetch_and_store_data():
     log("🚀 启动自动化浏览器...")
@@ -159,8 +325,11 @@ def fetch_and_store_data():
                 except Exception as e:
                     log(f"❌ 查询 {name} 失败: {e}")
 
-            if all_data:
-                new_rows = save_to_sqlite(all_data)
+            xueqiu_data = fetch_xueqiu_supplemental_data()
+            combined_data = all_data + xueqiu_data
+
+            if combined_data:
+                new_rows = save_to_sqlite(combined_data)
             else:
                 log("⚠️ 未抓取到有效数据。")
                 raise RuntimeError("未抓取到有效数据")
