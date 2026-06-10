@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const loading = document.getElementById('data-loading');
     const errorDiv = document.getElementById('data-error');
     const chartsArea = document.getElementById('charts-area');
+    const summaryDiv = document.getElementById('data-summary');
 
     try {
         const SQL = await loadSqlJs();
@@ -95,8 +96,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         loading.style.display = 'none';
 
+        const reservoirNames = Object.keys(grouped);
+        const sourceCounts = {};
+        values.forEach(row => {
+            const source = valueOf(row, 'source') || '四川政务公开';
+            sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+        });
+        const xueqiuNames = reservoirNames.filter(name =>
+            grouped[name].latestSource === '雪球@纬班长' ||
+            values.some(row => valueOf(row, 'name') === name && valueOf(row, 'source') === '雪球@纬班长')
+        );
+        summaryDiv.innerHTML = [
+            `当前展示 ${reservoirNames.length} 座水库/水文站`,
+            `数据来源：${Object.keys(sourceCounts).join('、')}`,
+            xueqiuNames.length ? `雪球补充：${xueqiuNames.join('、')}` : ''
+        ].filter(Boolean).map(text => `<span class="summary-pill">${text}</span>`).join('');
+
         // 3. 渲染图表
-        Object.keys(grouped).forEach(name => {
+        reservoirNames.forEach(name => {
             const chartId = safeId(name);
             const hasEnergy = grouped[name].energy.some(value => value !== null && value !== undefined);
             const sourceText = grouped[name].latestSourceUrl
