@@ -322,7 +322,7 @@ def fetch_xueqiu_supplemental_data():
 
 def fetch_and_store_data():
     log("🚀 启动自动化浏览器...")
-    new_rows = 0
+    all_data = []
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -337,7 +337,6 @@ def fetch_and_store_data():
             log(f"🔗 正在访问页面...")
             open_target_page(page)
 
-            all_data = []
             input_box = wait_for_station_input(page)
 
             for name in RESERVOIR_NAMES:
@@ -362,22 +361,19 @@ def fetch_and_store_data():
                                     break
                 except Exception as e:
                     log(f"❌ 查询 {name} 失败: {e}")
-
-            xueqiu_data = fetch_xueqiu_supplemental_data()
-            combined_data = all_data + xueqiu_data
-
-            if combined_data:
-                new_rows = save_to_sqlite(combined_data)
-            else:
-                log("⚠️ 未抓取到有效数据。")
-                raise RuntimeError("未抓取到有效数据")
-
         except Exception as e:
-            log(f"💥 严重错误: {e}")
-            raise
+            log(f"⚠️ 四川政务公开抓取失败，继续尝试雪球补充源: {e}")
         finally:
             browser.close()
-    return new_rows
+
+    xueqiu_data = fetch_xueqiu_supplemental_data()
+    combined_data = all_data + xueqiu_data
+
+    if combined_data:
+        return save_to_sqlite(combined_data)
+
+    log("⚠️ 未抓取到有效数据。")
+    raise RuntimeError("未抓取到有效数据")
 
 def git_push_data():
     repo_path = os.path.dirname(os.path.abspath(__file__))
