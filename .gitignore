@@ -4,3 +4,4 @@ __pycache__/
 scrape_stdout.log
 scrape_stderr.log
 scrape.log
+.env.local

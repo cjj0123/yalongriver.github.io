@@ -48,3 +48,13 @@ git config --local --get-regexp '^(http|https)\.'
 ```
 
 如果 `mihomo` 没有运行，自动任务会记录“本地代理 127.0.0.1:17890 不可用，将直接访问网络”，随后直连 GitHub 可能失败。
+
+## 雪球登录态
+
+雪球接口经常需要登录态，否则会被 WAF 或滑块验证拦截。脚本支持通过本地环境变量读取 Cookie：
+
+```bash
+XUEQIU_COOKIE='xq_a_token=...; xq_id_token=...; ...'
+```
+
+请把它写在项目根目录的 `.env.local` 中。该文件已加入 `.gitignore`，不要提交到 GitHub。`run_scraper.sh` 每次运行都会自动加载 `.env.local`。

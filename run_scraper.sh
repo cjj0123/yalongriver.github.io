@@ -55,4 +55,12 @@ if nc -z 127.0.0.1 17890 >/dev/null 2>&1; then
 else
   log "本地代理 127.0.0.1:17890 不可用，将直接访问网络。"
 fi
+
+if [ -f ".env.local" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env.local
+  set +a
+  log "已加载本地环境变量: .env.local"
+fi
 "$PYTHON_BIN" scraper.py
