@@ -1,0 +1,50 @@
+# 雅砻江水位监测维护说明
+
+## 定时任务
+
+本机使用 launchd 运行定时抓取任务：
+
+- 配置文件：`~/Library/LaunchAgents/com.jijunchen.yalongriver.scraper.plist`
+- 执行脚本：`run_scraper.sh`
+- 日志文件：`/tmp/yalongriver_scrape_stdout.log`、`/tmp/yalongriver_scrape_stderr.log`
+- 当前计划时间：每天 `07:00`、`10:30`、`11:30`
+
+查看任务状态：
+
+```bash
+launchctl print gui/$(id -u)/com.jijunchen.yalongriver.scraper
+```
+
+## GitHub 推送和代理
+
+这个项目的 GitHub Pages 更新依赖 `git push origin main`。本机访问 GitHub 需要走本地代理：
+
+- 代理程序：`mihomo`
+- 代理地址：`127.0.0.1:17890`
+- macOS 系统代理会使用这个端口，但 launchd 定时任务和终端里的 Git 命令不会自动继承系统代理。
+
+因此 `run_scraper.sh` 已显式检测 `127.0.0.1:17890`。如果端口可用，脚本会导出：
+
+```bash
+HTTP_PROXY=http://127.0.0.1:17890
+HTTPS_PROXY=http://127.0.0.1:17890
+ALL_PROXY=socks5://127.0.0.1:17890
+```
+
+本仓库 Git 也配置为走同一个代理，并使用 HTTP/1.1：
+
+```bash
+git config --local http.proxy http://127.0.0.1:17890
+git config --local https.proxy http://127.0.0.1:17890
+git config --local http.version HTTP/1.1
+```
+
+如果以后看到 `git push` 报 `Error in the HTTP2 framing layer`、`Failed to connect to github.com port 443`、`Operation timed out`，不要先怀疑 GitHub 权限或代码问题。优先检查：
+
+```bash
+lsof -nP -iTCP:17890 -sTCP:LISTEN
+curl -I -x http://127.0.0.1:17890 --connect-timeout 10 --max-time 30 https://github.com
+git config --local --get-regexp '^(http|https)\.'
+```
+
+如果 `mihomo` 没有运行，自动任务会记录“本地代理 127.0.0.1:17890 不可用，将直接访问网络”，随后直连 GitHub 可能失败。
