@@ -21,7 +21,7 @@ XUEQIU_SOURCE = "雪球@纬班长"
 XUEQIU_USER_ID = "4737961300"
 XUEQIU_STATUS_IDS = [
     status_id.strip()
-    for status_id in os.environ.get("XUEQIU_STATUS_IDS", "393824168,393149445").split(",")
+    for status_id in os.environ.get("XUEQIU_STATUS_IDS", "394304756,393824168,393149445").split(",")
     if status_id.strip()
 ]
 XUEQIU_LOCAL_POST_DIR = "xueqiu_posts"
@@ -175,6 +175,49 @@ def strip_tags(value):
     value = re.sub(r'<[^>]+>', '', value)
     return html.unescape(value)
 
+def xueqiu_status_url(status_id):
+    return f"https://xueqiu.com/{XUEQIU_USER_ID}/{status_id}"
+
+def xueqiu_status_id_from_source(source):
+    match = re.search(r'/(\d{6,})$', source or "")
+    if match:
+        return match.group(1)
+
+    basename = os.path.basename(source or "")
+    match = re.search(r'-(\d{6,})\.txt$', basename)
+    if match:
+        return match.group(1)
+
+    return None
+
+def local_post_source_url(path):
+    status_id = xueqiu_status_id_from_source(path)
+    if status_id:
+        return xueqiu_status_url(status_id)
+    return f"file://{os.path.abspath(path)}"
+
+def cache_xueqiu_post(text, source_url):
+    """缓存成功抓到的雪球正文，避免下次运行完全依赖实时接口。"""
+    status_id = xueqiu_status_id_from_source(source_url)
+    if not status_id or not text.strip():
+        return
+
+    date_match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日', text)
+    if date_match:
+        y, m, d = map(int, date_match.groups())
+        filename = f"{y:04d}-{m:02d}-{d:02d}-{status_id}.txt"
+    else:
+        filename = f"{status_id}.txt"
+
+    os.makedirs(XUEQIU_LOCAL_POST_DIR, exist_ok=True)
+    path = os.path.join(XUEQIU_LOCAL_POST_DIR, filename)
+    if os.path.exists(path):
+        return
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text.strip() + "\n")
+    log(f"🗂️ 已缓存雪球帖子: {path}")
+
 def request_json(url, headers=None, timeout=20):
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -187,7 +230,7 @@ def request_json(url, headers=None, timeout=20):
 
 def fetch_xueqiu_status_text(status_id):
     """读取雪球帖子。公开接口常被 WAF/登录拦截；支持 XUEQIU_COOKIE 提升成功率。"""
-    source_url = f"https://xueqiu.com/{XUEQIU_USER_ID}/{status_id}"
+    source_url = xueqiu_status_url(status_id)
     cookie = os.environ.get("XUEQIU_COOKIE", "").strip()
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
@@ -238,17 +281,20 @@ def fetch_xueqiu_timeline_posts():
 def iter_xueqiu_text_sources():
     for path in sorted(glob.glob(os.path.join(XUEQIU_LOCAL_POST_DIR, "*.txt"))):
         with open(path, "r", encoding="utf-8") as f:
-            yield f.read(), f"file://{os.path.abspath(path)}"
+            yield f.read(), local_post_source_url(path)
 
     try:
         for text, source_url in fetch_xueqiu_timeline_posts():
+            cache_xueqiu_post(text, source_url)
             yield text, source_url
     except Exception as e:
         log(f"⚠️ 雪球时间线读取失败: {e}")
 
     for status_id in XUEQIU_STATUS_IDS:
         try:
-            yield fetch_xueqiu_status_text(status_id)
+            text, source_url = fetch_xueqiu_status_text(status_id)
+            cache_xueqiu_post(text, source_url)
+            yield text, source_url
         except Exception as e:
             log(f"⚠️ 雪球帖子 {status_id} 读取失败: {e}")
 

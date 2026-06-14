@@ -25,6 +25,26 @@
             font-size: 0.95em;
             box-shadow: 0 4px 14px rgba(24, 144, 255, 0.08);
         }
+        .latest-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+        .latest-card {
+            background: #fff;
+            border: 1px solid #e8edf5;
+            border-radius: 8px;
+            padding: 14px 16px;
+            box-shadow: 0 5px 18px rgba(0,0,0,0.04);
+        }
+        .latest-card h3 { margin: 0 0 8px; color: #1f3b57; font-size: 1.05em; }
+        .latest-time { color: #888; font-size: 0.84em; margin-bottom: 10px; }
+        .metric-row { display: flex; justify-content: space-between; gap: 10px; line-height: 1.8; font-size: 0.95em; }
+        .metric-row span:first-child { color: #666; }
+        .metric-row span:last-child { color: #111; font-weight: 600; text-align: right; }
+        .latest-source { color: #666; font-size: 0.86em; margin-top: 10px; }
+        .latest-source a { color: #1890ff; text-decoration: none; }
         .container { max-width: 1200px; margin: auto; }
         .reservoir-card { 
             background: #fff; 
@@ -45,6 +65,7 @@
         <h1>雅砻江主要水库运行数据实时监测</h1>
         <div id="last-sync" class="update-time"></div>
         <div id="data-summary" class="summary-bar"></div>
+        <div id="latest-grid" class="latest-grid"></div>
         
         <div id="data-loading" class="loading-text">
             📦 正在同步数据库文件，请稍候...

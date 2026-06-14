@@ -58,3 +58,5 @@ XUEQIU_COOKIE='xq_a_token=...; xq_id_token=...; ...'
 ```
 
 请把它写在项目根目录的 `.env.local` 中。该文件已加入 `.gitignore`，不要提交到 GitHub。`run_scraper.sh` 每次运行都会自动加载 `.env.local`。
+
+脚本会优先读取 `xueqiu_posts/` 中已经缓存的纬班长帖子；如果通过登录态成功抓到新帖，会自动缓存为 `日期-帖子ID.txt`。网页中的雪球来源链接统一指向雪球原帖，而不是本机缓存文件路径。

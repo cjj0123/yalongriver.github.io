@@ -3,6 +3,7 @@ const SQL_JS_BASES = [
     'https://unpkg.com/sql.js@1.8.0/dist/',
     'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/'
 ];
+const DISPLAY_ORDER = ['两河口', '杨房沟', '锦屏一级', '官地', '二滩', '桐子林'];
 
 function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const errorDiv = document.getElementById('data-error');
     const chartsArea = document.getElementById('charts-area');
     const summaryDiv = document.getElementById('data-summary');
+    const latestGrid = document.getElementById('latest-grid');
 
     try {
         const SQL = await loadSqlJs();
@@ -67,6 +69,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             return index >= 0 ? row[index] : null;
         };
         const safeId = (name) => `chart_${encodeURIComponent(name).replace(/%/g, '')}`;
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const formatNumber = (value, digits = 2) => {
+            if (value === null || value === undefined || value === '') return '-';
+            const number = Number(value);
+            if (!Number.isFinite(number)) return '-';
+            return Number.isInteger(number) ? String(number) : number.toFixed(digits).replace(/\.?0+$/, '');
+        };
 
         values.forEach(row => {
             const name = valueOf(row, 'name');
@@ -94,7 +108,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         loading.style.display = 'none';
 
-        const reservoirNames = Object.keys(grouped);
+        const reservoirNames = Object.keys(grouped).sort((a, b) => {
+            const indexA = DISPLAY_ORDER.indexOf(a);
+            const indexB = DISPLAY_ORDER.indexOf(b);
+            if (indexA === -1 && indexB === -1) return a.localeCompare(b, 'zh-CN');
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        });
         const sourceCounts = {};
         values.forEach(row => {
             const source = valueOf(row, 'source') || '四川政务公开';
@@ -110,17 +131,36 @@ document.addEventListener('DOMContentLoaded', async () => {
             xueqiuNames.length ? `雪球补充：${xueqiuNames.join('、')}` : ''
         ].filter(Boolean).map(text => `<span class="summary-pill">${text}</span>`).join('');
 
+        latestGrid.innerHTML = reservoirNames.map(name => {
+            const item = grouped[name];
+            const latestIndex = item.time.length - 1;
+            const sourceText = item.latestSourceUrl
+                ? `<a href="${escapeHtml(item.latestSourceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.latestSource)}</a>`
+                : escapeHtml(item.latestSource);
+            return `
+                <div class="latest-card">
+                    <h3>${escapeHtml(name)}</h3>
+                    <div class="latest-time">${escapeHtml(item.time[latestIndex])}</div>
+                    <div class="metric-row"><span>水位</span><span>${formatNumber(item.water[latestIndex])} m</span></div>
+                    <div class="metric-row"><span>入库</span><span>${formatNumber(item.inflow[latestIndex], 0)} m³/s</span></div>
+                    <div class="metric-row"><span>出库</span><span>${formatNumber(item.outflow[latestIndex], 0)} m³/s</span></div>
+                    <div class="metric-row"><span>蓄量</span><span>${formatNumber(item.capacity[latestIndex])} 亿m³</span></div>
+                    <div class="latest-source">来源：${sourceText}</div>
+                </div>
+            `;
+        }).join('');
+
         // 3. 渲染图表
         reservoirNames.forEach(name => {
             const chartId = safeId(name);
             const sourceText = grouped[name].latestSourceUrl
-                ? `<a href="${grouped[name].latestSourceUrl}" target="_blank" rel="noopener">${grouped[name].latestSource}</a>`
-                : grouped[name].latestSource;
-            const noteText = grouped[name].latestNote ? `；${grouped[name].latestNote}` : '';
+                ? `<a href="${escapeHtml(grouped[name].latestSourceUrl)}" target="_blank" rel="noopener">${escapeHtml(grouped[name].latestSource)}</a>`
+                : escapeHtml(grouped[name].latestSource);
+            const noteText = grouped[name].latestNote ? `；${escapeHtml(grouped[name].latestNote)}` : '';
             const card = document.createElement('div');
             card.className = 'reservoir-card';
             card.innerHTML = `
-                <h2>${name} 水库</h2>
+                <h2>${escapeHtml(name)} 运行数据</h2>
                 <div class="meta-text">最新来源：${sourceText}${noteText}</div>
                 <div id="${chartId}" class="chart-container"></div>
             `;
