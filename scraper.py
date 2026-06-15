@@ -21,7 +21,7 @@ XUEQIU_SOURCE = "雪球@纬班长"
 XUEQIU_USER_ID = "4737961300"
 XUEQIU_STATUS_IDS = [
     status_id.strip()
-    for status_id in os.environ.get("XUEQIU_STATUS_IDS", "394539731,394304756,394086059,393824168,393149445").split(",")
+    for status_id in os.environ.get("XUEQIU_STATUS_IDS", "394700390,394539731,394304756,394086059,393824168,393149445").split(",")
     if status_id.strip()
 ]
 XUEQIU_LOCAL_POST_DIR = "xueqiu_posts"
