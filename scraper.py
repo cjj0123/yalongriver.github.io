@@ -187,6 +187,9 @@ def xueqiu_status_id_from_source(source):
     match = re.search(r'-(\d{6,})\.txt$', basename)
     if match:
         return match.group(1)
+    match = re.fullmatch(r'(\d{6,})\.txt', basename)
+    if match:
+        return match.group(1)
 
     return None
 
@@ -306,7 +309,8 @@ def parse_xueqiu_reservoir_rows(text, source_url):
         y, m, d = map(int, date_match.groups())
         record_time = f"{y:04d}-{m:02d}-{d:02d} 08:00:00"
     else:
-        record_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log(f"⚠️ 雪球源缺少表格日期，跳过解析: {source_url}")
+        return []
 
     normalized_text = re.sub(r'[；;]', '\n', text)
     known_names = "|".join(re.escape(name) for name in XUEQIU_RESERVOIR_NAMES)
