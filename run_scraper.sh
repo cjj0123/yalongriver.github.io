@@ -44,16 +44,24 @@ fi
 # 运行爬虫
 export GIT_TERMINAL_PROMPT=0
 export PYTHONUNBUFFERED=1
-if nc -z 127.0.0.1 17890 >/dev/null 2>&1; then
-  export HTTP_PROXY="http://127.0.0.1:17890"
-  export HTTPS_PROXY="http://127.0.0.1:17890"
-  export ALL_PROXY="socks5://127.0.0.1:17890"
+PROXY_PORT=""
+for port in 7890 17890; do
+  if nc -z 127.0.0.1 "$port" >/dev/null 2>&1; then
+    PROXY_PORT="$port"
+    break
+  fi
+done
+
+if [ -n "$PROXY_PORT" ]; then
+  export HTTP_PROXY="http://127.0.0.1:$PROXY_PORT"
+  export HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT"
+  export ALL_PROXY="socks5://127.0.0.1:$PROXY_PORT"
   export http_proxy="$HTTP_PROXY"
   export https_proxy="$HTTPS_PROXY"
   export all_proxy="$ALL_PROXY"
-  log "已启用本地代理: 127.0.0.1:17890"
+  log "已启用本地代理: 127.0.0.1:$PROXY_PORT"
 else
-  log "本地代理 127.0.0.1:17890 不可用，将直接访问网络。"
+  log "本地代理 127.0.0.1:7890/17890 不可用，将直接访问网络。"
 fi
 
 if [ -f ".env.local" ]; then
