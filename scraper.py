@@ -18,6 +18,7 @@ RESERVOIR_NAMES = ["二滩", "锦屏一级", "官地"]
 LOG_FILE = "scrape.log"
 GOV_SOURCE = "四川政务公开"
 XUEQIU_SOURCE = "雪球@纬班长"
+WECHAT_SOURCE = "微信公众号@纬班长"
 XUEQIU_USER_ID = "4737961300"
 XUEQIU_STATUS_IDS = [
     status_id.strip()
@@ -25,6 +26,7 @@ XUEQIU_STATUS_IDS = [
     if status_id.strip()
 ]
 XUEQIU_LOCAL_POST_DIR = "xueqiu_posts"
+WECHAT_LOCAL_POST_DIR = "wechat_posts"
 XUEQIU_RESERVOIR_NAMES = ["两河口", "杨房沟", "锦屏一级", "官地", "二滩", "桐子林"]
 XUEQIU_FETCH_LIMIT = int(os.environ.get("XUEQIU_FETCH_LIMIT", "10"))
 
@@ -301,16 +303,32 @@ def iter_xueqiu_text_sources():
         except Exception as e:
             log(f"⚠️ 雪球帖子 {status_id} 读取失败: {e}")
 
-def parse_xueqiu_reservoir_rows(text, source_url):
-    """解析纬班长帖子中的“水位/蓄量/入库/出库”行。"""
+
+def iter_wechat_text_sources():
+    """读取人工核验后的纬班长微信公众号文章缓存。"""
+    for path in sorted(glob.glob(os.path.join(WECHAT_LOCAL_POST_DIR, "*.txt"))):
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        source_match = re.search(r'来源\s*[:：]\s*(https://mp\.weixin\.qq\.com/\S+)', text)
+        source_url = source_match.group(1) if source_match else f"file://{os.path.abspath(path)}"
+        yield text, source_url
+
+
+def parse_xueqiu_reservoir_rows(text, source_url, source_name=None, note=None):
+    """解析纬班长雪球或公众号文章中的“水位/蓄量/入库/出库”行。"""
     rows = []
     date_match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日', text)
     if date_match:
         y, m, d = map(int, date_match.groups())
         record_time = f"{y:04d}-{m:02d}-{d:02d} 08:00:00"
     else:
-        log(f"⚠️ 雪球源缺少表格日期，跳过解析: {source_url}")
+        log(f"⚠️ 纬班长来源缺少表格日期，跳过解析: {source_url}")
         return []
+
+    if source_name is None:
+        source_name = WECHAT_SOURCE if "mp.weixin.qq.com" in (source_url or "") else XUEQIU_SOURCE
+    if note is None:
+        note = "微信公众号文章截图人工核验" if source_name == WECHAT_SOURCE else "雪球帖子解析"
 
     normalized_text = re.sub(r'[；;]', '\n', text)
     known_names = "|".join(re.escape(name) for name in XUEQIU_RESERVOIR_NAMES)
@@ -348,9 +366,9 @@ def parse_xueqiu_reservoir_rows(text, source_url):
             "xsl": capacity_value,
             "energy_level": None,
             "record_time": record_time,
-            "source": XUEQIU_SOURCE,
+            "source": source_name,
             "source_url": source_url,
-            "note": "雪球帖子解析",
+            "note": note,
         })
 
     deduped = {}
@@ -366,8 +384,14 @@ def fetch_xueqiu_supplemental_data():
             log(f"✅ 雪球补充源解析到 {len(parsed)} 条: {source_url}")
             all_rows.extend(parsed)
 
+    for text, source_url in iter_wechat_text_sources():
+        parsed = parse_xueqiu_reservoir_rows(text, source_url)
+        if parsed:
+            log(f"✅ 微信公众号补充源解析到 {len(parsed)} 条: {source_url}")
+            all_rows.extend(parsed)
+
     if not all_rows:
-        log("⚠️ 雪球补充源未解析到有效数据。")
+        log("⚠️ 纬班长补充源未解析到有效数据。")
     return all_rows
 
 def fetch_and_store_data():

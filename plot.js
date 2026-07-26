@@ -121,14 +121,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             const source = valueOf(row, 'source') || '四川政务公开';
             sourceCounts[source] = (sourceCounts[source] || 0) + 1;
         });
-        const xueqiuNames = reservoirNames.filter(name =>
-            grouped[name].latestSource === '雪球@纬班长' ||
-            values.some(row => valueOf(row, 'name') === name && valueOf(row, 'source') === '雪球@纬班长')
+        const weibanzhangSources = new Set(['雪球@纬班长', '微信公众号@纬班长']);
+        const weibanzhangNames = reservoirNames.filter(name =>
+            weibanzhangSources.has(grouped[name].latestSource) ||
+            values.some(row =>
+                valueOf(row, 'name') === name &&
+                weibanzhangSources.has(valueOf(row, 'source'))
+            )
         );
         summaryDiv.innerHTML = [
             `当前展示 ${reservoirNames.length} 座水库/水文站`,
             `数据来源：${Object.keys(sourceCounts).join('、')}`,
-            xueqiuNames.length ? `雪球补充：${xueqiuNames.join('、')}` : ''
+            weibanzhangNames.length ? `纬班长补充：${weibanzhangNames.join('、')}` : ''
         ].filter(Boolean).map(text => `<span class="summary-pill">${text}</span>`).join('');
 
         latestGrid.innerHTML = reservoirNames.map(name => {
