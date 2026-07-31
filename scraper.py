@@ -456,6 +456,16 @@ def git_push_data():
         env = os.environ.copy()
         # 任何 git 交互都必须失败退出，避免 launchd / 定时任务长时间挂起。
         env["GIT_TERMINAL_PROMPT"] = "0"
+        # 仓库可能保留上一次 ClashMac 使用的端口；显式采用本次运行探测到的
+        # 代理，避免 repo-local http.proxy 覆盖 run_scraper.sh 的环境变量。
+        proxy_url = env.get("HTTPS_PROXY") or env.get("HTTP_PROXY")
+        if args and args[0] == "git" and proxy_url:
+            args = [
+                "git",
+                "-c", f"http.proxy={proxy_url}",
+                "-c", f"https.proxy={proxy_url}",
+                *args[1:],
+            ]
         result = subprocess.run(
             args,
             cwd=repo_path,
