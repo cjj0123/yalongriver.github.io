@@ -309,7 +309,7 @@ def iter_wechat_text_sources():
     for path in sorted(glob.glob(os.path.join(WECHAT_LOCAL_POST_DIR, "*.txt"))):
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
-        source_match = re.search(r'来源\s*[:：]\s*(https://mp\.weixin\.qq\.com/\S+)', text)
+        source_match = re.search(r'^来源\s*[:：]\s*(\S+)', text, re.M)
         source_url = source_match.group(1) if source_match else f"file://{os.path.abspath(path)}"
         yield text, source_url
 
@@ -385,7 +385,12 @@ def fetch_xueqiu_supplemental_data():
             all_rows.extend(parsed)
 
     for text, source_url in iter_wechat_text_sources():
-        parsed = parse_xueqiu_reservoir_rows(text, source_url)
+        parsed = parse_xueqiu_reservoir_rows(
+            text,
+            source_url,
+            source_name=WECHAT_SOURCE,
+            note="微信公众号文章截图人工核验",
+        )
         if parsed:
             log(f"✅ 微信公众号补充源解析到 {len(parsed)} 条: {source_url}")
             all_rows.extend(parsed)
