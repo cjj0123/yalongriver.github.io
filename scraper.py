@@ -750,7 +750,14 @@ def git_push_data():
             run_git(["git", "add", "--", relative_path], "git add 微信公众号缓存")
 
         commit_msg = f"Auto update: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        run_git(["git", "commit", "-m", commit_msg], "git commit")
+        try:
+            run_git(["git", "commit", "-m", commit_msg], "git commit")
+        except subprocess.CalledProcessError as e:
+            combined_output = f"{getattr(e, 'stdout', '')}\n{getattr(e, 'stderr', '')}".lower()
+            if "nothing to commit" in combined_output or "working tree clean" in combined_output:
+                log("😴 Git 没有新的变更，继续检查是否有上次未推送的本地提交。")
+            else:
+                raise
 
         push_with_retry()
         log("🚀 数据同步成功！")
@@ -758,22 +765,17 @@ def git_push_data():
         log(f"⏱️ Git 操作超时: {e.cmd}，已终止本次推送，避免任务卡死。")
         raise
     except subprocess.CalledProcessError as e:
-        combined_output = f"{getattr(e, 'stdout', '')}\n{getattr(e, 'stderr', '')}".lower()
-        if isinstance(e.cmd, (list, tuple)) and len(e.cmd) >= 2 and e.cmd[1] == "commit":
-            if "nothing to commit" in combined_output or "working tree clean" in combined_output:
-                log("😴 Git 没有新的变更，跳过推送。")
-                return
-
         log(f"💥 Git 同步失败 (exit code {e.returncode})")
         raise
     except Exception as e:
         log(f"⚠️ Git 操作失败: {e}")
+        raise
 
 if __name__ == "__main__":
     init_db()
     added_count = fetch_and_store_data()
     if added_count > 0 or GENERATED_WECHAT_CACHE_FILES:
         log(f"💾 本次更新了 {added_count} 条数据。")
-        git_push_data()
     else:
-        log("😴 数据与上一次完全一致，无需上传。")
+        log("😴 数据与上一次完全一致，仍检查是否有上次未推送的本地提交。")
+    git_push_data()
