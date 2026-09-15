@@ -7,7 +7,7 @@
 - 配置文件：`~/Library/LaunchAgents/com.jijunchen.yalongriver.scraper.plist`
 - 执行脚本：`run_scraper.sh`
 - 日志文件：`/tmp/yalongriver_scrape_stdout.log`、`/tmp/yalongriver_scrape_stderr.log`
-- 当前计划时间：每天 `07:00`、`10:30`、`11:30`
+- 当前计划时间：每天 `07:00`、`17:00`
 
 查看任务状态：
 
