@@ -754,7 +754,12 @@ def git_push_data():
             run_git(["git", "commit", "-m", commit_msg], "git commit")
         except subprocess.CalledProcessError as e:
             combined_output = f"{getattr(e, 'stdout', '')}\n{getattr(e, 'stderr', '')}".lower()
-            if "nothing to commit" in combined_output or "working tree clean" in combined_output:
+            if (
+                "nothing to commit" in combined_output
+                or "nothing added to commit" in combined_output
+                or "no changes added to commit" in combined_output
+                or "working tree clean" in combined_output
+            ):
                 log("😴 Git 没有新的变更，继续检查是否有上次未推送的本地提交。")
             else:
                 raise
