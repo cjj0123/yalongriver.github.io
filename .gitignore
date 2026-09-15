@@ -5,3 +5,6 @@ scrape_stdout.log
 scrape_stderr.log
 scrape.log
 .env.local
+wechat_posts/article_urls.txt
+.crawl4ai/
+.cache/

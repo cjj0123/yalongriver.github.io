@@ -44,6 +44,13 @@ fi
 # 运行爬虫
 export GIT_TERMINAL_PROMPT=0
 export PYTHONUNBUFFERED=1
+# crawl4ai 默认把缓存写入用户主目录；LaunchAgent 运行时可能没有该目录的
+# 文件权限，因此把它限制在项目内，并由 .gitignore 排除。
+export CRAWL4_AI_BASE_DIRECTORY="${CRAWL4_AI_BASE_DIRECTORY:-$(pwd)}"
+# Sogou Weixin MCP is launched by uvx during automatic article discovery.
+# Keep its package cache beside the project so launchd does not depend on
+# privacy-protected paths under the user's home directory.
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$(pwd)/.cache/uv}"
 PROXY_PORT=""
 for port in 7890 17890; do
   if nc -z 127.0.0.1 "$port" >/dev/null 2>&1; then

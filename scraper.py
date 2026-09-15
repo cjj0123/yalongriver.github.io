@@ -9,6 +9,7 @@ import glob
 import html
 import urllib.request
 import urllib.parse
+import asyncio
 from playwright.sync_api import sync_playwright
 
 # --- 配置区 ---
@@ -27,8 +28,14 @@ XUEQIU_STATUS_IDS = [
 ]
 XUEQIU_LOCAL_POST_DIR = "xueqiu_posts"
 WECHAT_LOCAL_POST_DIR = "wechat_posts"
+WECHAT_ARTICLE_URL_FILE = os.environ.get(
+    "WECHAT_ARTICLE_URL_FILE",
+    os.path.join(WECHAT_LOCAL_POST_DIR, "article_urls.txt"),
+)
 XUEQIU_RESERVOIR_NAMES = ["两河口", "杨房沟", "锦屏一级", "官地", "二滩", "桐子林"]
 XUEQIU_FETCH_LIMIT = int(os.environ.get("XUEQIU_FETCH_LIMIT", "10"))
+GENERATED_WECHAT_CACHE_FILES = []
+DISCOVERED_WECHAT_ARTICLES = []
 
 def log(msg):
     """写入日志"""
@@ -305,8 +312,11 @@ def iter_xueqiu_text_sources():
 
 
 def iter_wechat_text_sources():
-    """读取人工核验后的纬班长微信公众号文章缓存。"""
+    """读取已校验的纬班长微信公众号文章缓存。"""
+    url_file = os.path.abspath(WECHAT_ARTICLE_URL_FILE)
     for path in sorted(glob.glob(os.path.join(WECHAT_LOCAL_POST_DIR, "*.txt"))):
+        if os.path.abspath(path) == url_file:
+            continue
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         source_match = re.search(r'^来源\s*[:：]\s*(\S+)', text, re.M)
@@ -314,14 +324,197 @@ def iter_wechat_text_sources():
         yield text, source_url
 
 
+def configured_wechat_article_urls():
+    """读取待抓取的原始公众号文章链接，不把索引摘要当作数据源。"""
+    global DISCOVERED_WECHAT_ARTICLES
+    DISCOVERED_WECHAT_ARTICLES = []
+    candidates = []
+    raw_urls = os.environ.get("WECHAT_ARTICLE_URLS", "")
+    candidates.extend(re.split(r"[\s,;]+", raw_urls))
+
+    if os.path.isfile(WECHAT_ARTICLE_URL_FILE):
+        with open(WECHAT_ARTICLE_URL_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    candidates.append(line)
+
+    # Sogou is used only as a discovery index.  The returned original URL is
+    # passed to wechat_crawler, whose full article content and six-row check
+    # remain the admission gate for the database.
+    try:
+        from sogou_weixin_discovery import discover_wechat_articles
+
+        discovered_articles = discover_wechat_articles()
+        DISCOVERED_WECHAT_ARTICLES = discovered_articles
+        discovered = [article["url"] for article in discovered_articles]
+        if discovered:
+            log(f"🔎 Sogou 发现 {len(discovered)} 个公众号原文链接。")
+            candidates.extend(discovered)
+        else:
+            log("ℹ️ Sogou 未发现新的纬班长雅砻江公众号原文。")
+    except Exception as exc:
+        log(f"⚠️ Sogou 公众号文章发现失败，继续使用已配置链接: {exc}")
+
+    urls = []
+    seen = set()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if not candidate or not re.match(r"^https://mp\.weixin\.qq\.com/s(?:/|\?)", candidate):
+            continue
+        if candidate not in seen:
+            seen.add(candidate)
+            urls.append(candidate)
+    return urls
+
+
+def cached_wechat_source_urls():
+    """返回已有缓存中的原始公众号链接，避免重复抓取同一篇文章。"""
+    urls = set()
+    for path in sorted(glob.glob(os.path.join(WECHAT_LOCAL_POST_DIR, "*.txt"))):
+        if os.path.abspath(path) == os.path.abspath(WECHAT_ARTICLE_URL_FILE):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError as exc:
+            log(f"⚠️ 读取公众号缓存失败 {path}: {exc}")
+            continue
+        source_match = re.search(r'^来源\s*[:：]\s*(\S+)', text, re.M)
+        if source_match and re.match(r"^https://mp\.weixin\.qq\.com/s(?:/|\?)", source_match.group(1)):
+            urls.add(source_match.group(1))
+    return urls
+
+
+def normalize_wechat_article_title(title):
+    return re.sub(r"\s+", "", (title or "")).strip()
+
+
+def cached_wechat_article_titles():
+    """返回已通过六库校验的缓存标题，抵御 Sogou 签名 URL 每次变化。"""
+    titles = set()
+    for path in sorted(glob.glob(os.path.join(WECHAT_LOCAL_POST_DIR, "*.txt"))):
+        if os.path.abspath(path) == os.path.abspath(WECHAT_ARTICLE_URL_FILE):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                first_line = f.readline().strip()
+        except OSError:
+            continue
+        if first_line:
+            titles.add(normalize_wechat_article_title(first_line.lstrip("# ")))
+    return titles
+
+
+def wechat_article_cache_text(article, source_url):
+    """将 crawler 结果整理为项目现有解析器可识别的缓存文本。"""
+    markdown = article.get("markdown", "") or ""
+    # 解析器需要正文数字；图片仍由 crawler 负责修复，但不把图片 URL 当作数据。
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", markdown)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text).strip()
+    lines = [article.get("title", "").strip()]
+    if article.get("author"):
+        lines.append(f"公众号：{article['author'].strip()}")
+    if article.get("publish_time"):
+        lines.append(f"发布于：{article['publish_time'].strip()}")
+    lines.extend([
+        f"来源：{source_url}",
+        "说明：使用公开 wechat-article-crawler 抓取原文；仅在六库字段完整且日期可解析时自动入库。",
+        "",
+        text,
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def validate_wechat_rows(rows, source_url):
+    """要求六个对象和必需字段齐全，防止验证码页或半张表进入数据库。"""
+    expected_names = set(XUEQIU_RESERVOIR_NAMES)
+    actual_names = {row.get("zhanming") for row in rows}
+    if len(rows) != 6 or actual_names != expected_names:
+        missing = sorted(expected_names - actual_names)
+        raise ValueError(f"六库数据不完整，缺少: {', '.join(missing) or '对象重复'} ({source_url})")
+
+    required_fields = ("ksw", "rkll", "ckll")
+    for row in rows:
+        missing = [field for field in required_fields if row.get(field) in (None, "")]
+        if row.get("zhanming") != "桐子林" and row.get("xsl") is None:
+            missing.append("xsl")
+        if missing:
+            raise ValueError(f"{row.get('zhanming')} 缺少字段: {', '.join(missing)} ({source_url})")
+
+
+def crawl_new_wechat_articles():
+    """抓取配置的原始公众号链接；失败时跳过，不影响官方数据流程。"""
+    global GENERATED_WECHAT_CACHE_FILES
+    urls = configured_wechat_article_urls()
+    if not urls:
+        log("ℹ️ 未配置待抓取的公众号原始链接，跳过自动 crawler。")
+        return
+
+    try:
+        from wechat_crawler import crawl_wechat_article
+    except Exception as exc:
+        log(f"⚠️ 微信公众号 crawler 不可用，跳过自动抓取: {exc}")
+        return
+
+    cached_urls = cached_wechat_source_urls()
+    cached_titles = cached_wechat_article_titles()
+    discovered_by_url = {
+        article["url"]: article for article in DISCOVERED_WECHAT_ARTICLES
+    }
+    for source_url in urls:
+        if source_url in cached_urls:
+            log(f"⏭️ 公众号文章已缓存，跳过重复抓取: {source_url}")
+            continue
+        discovered_hint = discovered_by_url.get(source_url, {})
+        title_hint = normalize_wechat_article_title(discovered_hint.get("title", ""))
+        if title_hint and title_hint in cached_titles:
+            log(f"⏭️ 公众号文章标题已缓存，跳过新的签名链接: {discovered_hint.get('title')}")
+            continue
+        try:
+            article = asyncio.run(crawl_wechat_article(source_url))
+            author = article.get("author", "")
+            if "纬班长" not in f"{author} {article.get('title', '')}":
+                raise ValueError(f"未确认公众号为纬班长，识别作者: {author or '空'}")
+
+            cache_text = wechat_article_cache_text(article, source_url)
+            rows = parse_xueqiu_reservoir_rows(
+                cache_text,
+                source_url,
+                source_name=WECHAT_SOURCE,
+                note="微信公众号原文 crawler 自动抓取并完成六库校验",
+            )
+            validate_wechat_rows(rows, source_url)
+            record_dates = {row["record_time"][:10] for row in rows}
+            if len(record_dates) != 1:
+                raise ValueError(f"六库表格日期不一致: {sorted(record_dates)}")
+
+            os.makedirs(WECHAT_LOCAL_POST_DIR, exist_ok=True)
+            record_date = next(iter(record_dates))
+            url_fingerprint = __import__("hashlib").sha1(source_url.encode("utf-8")).hexdigest()[:10]
+            cache_path = os.path.join(
+                WECHAT_LOCAL_POST_DIR,
+                f"{record_date}-weibanzhang-auto-{url_fingerprint}.txt",
+            )
+            temp_path = f"{cache_path}.tmp.{os.getpid()}"
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(cache_text)
+            os.replace(temp_path, cache_path)
+            GENERATED_WECHAT_CACHE_FILES.append(cache_path)
+            cached_urls.add(source_url)
+            cached_titles.add(normalize_wechat_article_title(article.get("title", "")))
+            log(f"✅ 公众号文章已抓取并通过六库校验: {source_url} -> {cache_path}")
+        except Exception as exc:
+            log(f"⚠️ 公众号文章未通过自动抓取/校验，保留旧数据: {source_url}: {exc}")
+
+
 def parse_xueqiu_reservoir_rows(text, source_url, source_name=None, note=None):
     """解析纬班长雪球或公众号文章中的“水位/蓄量/入库/出库”行。"""
     rows = []
     date_match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日', text)
-    if date_match:
-        y, m, d = map(int, date_match.groups())
-        record_time = f"{y:04d}-{m:02d}-{d:02d} 08:00:00"
-    else:
+    if not date_match:
         log(f"⚠️ 纬班长来源缺少表格日期，跳过解析: {source_url}")
         return []
 
@@ -333,20 +526,62 @@ def parse_xueqiu_reservoir_rows(text, source_url, source_name=None, note=None):
     normalized_text = re.sub(r'[；;]', '\n', text)
     known_names = "|".join(re.escape(name) for name in XUEQIU_RESERVOIR_NAMES)
     name_pattern = rf'({known_names})(?:水库|水电站|水文站)?'
-    for chunk in normalized_text.splitlines():
+    # 文章正文的概览句会先枚举库名（例如“锦屏一级、官地、二滩……”）。
+    # 只有紧跟表格日期/水位的库名才是实际数据块的起点。
+    reservoir_matches = [
+        match for match in re.finditer(name_pattern, normalized_text)
+        if re.search(
+            r"20\d{2}年\s*\d{1,2}月\s*\d{1,2}日|水位",
+            normalized_text[match.end():match.end() + 120],
+        )
+    ]
+    for index, match in enumerate(reservoir_matches):
+        # 公众号文章通常把一个库的水位、入库、出库、蓄水量拆成多行；
+        # 按相邻库名切块后再解析，同时兼容雪球的一行式记录。
+        chunk_end = reservoir_matches[index + 1].start() if index + 1 < len(reservoir_matches) else len(normalized_text)
+        chunk = normalized_text[match.start():chunk_end]
         if not chunk.strip():
             continue
-        match = re.search(name_pattern, chunk)
-        if not match:
-            continue
         name = match.group(1).strip()
-        water = re.search(r'水位\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*m?', chunk, re.I)
-        capacity = re.search(r'蓄(?:水)?量(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*亿?m?[³3]?', chunk)
-        inflow = re.search(r'入库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', chunk)
-        outflow = re.search(r'出库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', chunk)
+        markdown_gap = r'\**\s*'
+        water = re.search(
+            rf'水位\s*[:：]?\s*{markdown_gap}([0-9]+(?:\.[0-9]+)?)\s*m?',
+            chunk,
+            re.I,
+        )
+        capacity = re.search(
+            rf'蓄(?:水)?量(?:\([^)]*\))?\s*[:：]?\s*{markdown_gap}'
+            r'([0-9]+(?:\.[0-9]+)?)\s*亿?m?[³3]?',
+            chunk,
+        )
+        inflow = re.search(
+            rf'入库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*{markdown_gap}'
+            r'([0-9]+(?:\.[0-9]+)?)',
+            chunk,
+        )
+        outflow = re.search(
+            rf'出库(?:流量)?(?:\([^)]*\))?\s*[:：]?\s*{markdown_gap}'
+            r'([0-9]+(?:\.[0-9]+)?)',
+            chunk,
+        )
+        if name == "桐子林" and not inflow and not outflow:
+            station_flow = re.search(
+                rf'流量(?:\([^)]*\))?\s*[:：]?\s*{markdown_gap}'
+                r'([0-9]+(?:\.[0-9]+)?)',
+                chunk,
+            )
+            if station_flow:
+                # 文章对桐子林水文站只给一个流量，沿用项目既有兼容约定。
+                inflow = station_flow
+                outflow = station_flow
 
         if not any([water, capacity, inflow, outflow]):
             continue
+
+        row_date_match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日', chunk)
+        row_date_match = row_date_match or date_match
+        y, m, d = map(int, row_date_match.groups())
+        record_time = f"{y:04d}-{m:02d}-{d:02d} 08:00:00"
 
         capacity_value = None
         if capacity:
@@ -445,6 +680,7 @@ def fetch_and_store_data():
         finally:
             browser.close()
 
+    crawl_new_wechat_articles()
     xueqiu_data = fetch_xueqiu_supplemental_data()
     combined_data = all_data + xueqiu_data
 
@@ -507,6 +743,11 @@ def git_push_data():
     try:
         log("🔄 正在推送更新至 GitHub...")
         run_git(["git", "add", "reservoirs.db"], "git add")
+        for cache_path in GENERATED_WECHAT_CACHE_FILES:
+            relative_path = os.path.relpath(cache_path, repo_path)
+            if relative_path.startswith("../") or os.path.isabs(relative_path):
+                raise RuntimeError(f"拒绝暂存仓库外的公众号缓存: {cache_path}")
+            run_git(["git", "add", "--", relative_path], "git add 微信公众号缓存")
 
         commit_msg = f"Auto update: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
         run_git(["git", "commit", "-m", commit_msg], "git commit")
@@ -531,7 +772,7 @@ def git_push_data():
 if __name__ == "__main__":
     init_db()
     added_count = fetch_and_store_data()
-    if added_count > 0:
+    if added_count > 0 or GENERATED_WECHAT_CACHE_FILES:
         log(f"💾 本次更新了 {added_count} 条数据。")
         git_push_data()
     else:
