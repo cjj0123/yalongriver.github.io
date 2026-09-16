@@ -41,6 +41,21 @@ if ! "$PYTHON_BIN" -c "from playwright.sync_api import sync_playwright" >/dev/nu
   exit 78
 fi
 
+if ! "$PYTHON_BIN" - <<'PY'
+from playwright.sync_api import sync_playwright
+
+with sync_playwright() as playwright:
+    browser = playwright.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-setuid-sandbox", "--no-proxy-server"],
+    )
+    browser.close()
+PY
+then
+  log "Playwright 浏览器不可启动。可用这个命令修复: $PYTHON_BIN -m playwright install chromium"
+  exit 78
+fi
+
 # 运行爬虫
 export GIT_TERMINAL_PROMPT=0
 export PYTHONUNBUFFERED=1
