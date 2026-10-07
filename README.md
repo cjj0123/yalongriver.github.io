@@ -84,8 +84,8 @@ XUEQIU_COOKIE='xq_a_token=...; xq_id_token=...; ...'
 
 将待抓取的原始链接逐行放入本地文件 `wechat_posts/article_urls.txt`，或通过
 `.env.local` 设置 `WECHAT_ARTICLE_URLS`（多个链接可用空格、逗号或分号分隔）。
-默认会自动执行 Sogou 发现；可在 `.env.local` 中设置
-`WECHAT_AUTO_DISCOVER=0` 关闭，也可用 `WECHAT_DISCOVERY_QUERY` 和
-`WECHAT_DISCOVERY_TOP_NUM` 调整查询。定时任务会跳过已缓存链接，只对新链接抓取，
-并且只有在日期、六个对象、水位、入库和出库字段完整时才会写入缓存、数据库和
-GitHub。遇到验证码或半张表时只记录日志，不覆盖既有数据。
+公众号自动发现和 crawler 抓取目前已关闭，`run_scraper.sh` 会强制设置
+`WECHAT_AUTO_FETCH=0`，定时任务不会再访问 Sogou 或 `mp.weixin.qq.com`；已有公众号
+缓存仍会保留并参与历史数据展示。若未来确需恢复，必须明确修改该入口开关；恢复后
+可用 `WECHAT_AUTO_DISCOVER=0` 关闭 Sogou 发现，也可用 `WECHAT_DISCOVERY_QUERY` 和
+`WECHAT_DISCOVERY_TOP_NUM` 调整查询。遇到验证码或半张表时只记录日志，不覆盖既有数据。

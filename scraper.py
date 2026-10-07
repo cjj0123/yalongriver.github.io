@@ -33,6 +33,11 @@ WECHAT_ARTICLE_URL_FILE = os.environ.get(
     "WECHAT_ARTICLE_URL_FILE",
     os.path.join(WECHAT_LOCAL_POST_DIR, "article_urls.txt"),
 )
+# 公众号自动发现和 crawler 抓取默认关闭；已有本地缓存仍会继续参与
+# 去重/展示，只有显式设置 WECHAT_AUTO_FETCH=1 才会联网抓新文章。
+WECHAT_AUTO_FETCH = os.environ.get("WECHAT_AUTO_FETCH", "0").strip().lower() in {
+    "1", "true", "yes", "on"
+}
 XUEQIU_RESERVOIR_NAMES = ["两河口", "杨房沟", "锦屏一级", "官地", "二滩", "桐子林"]
 XUEQIU_FETCH_LIMIT = int(os.environ.get("XUEQIU_FETCH_LIMIT", "10"))
 GENERATED_WECHAT_CACHE_FILES = []
@@ -340,22 +345,28 @@ def configured_wechat_article_urls():
                 if line:
                     candidates.append(line)
 
-    # Sogou is used only as a discovery index.  The returned original URL is
-    # passed to wechat_crawler, whose full article content and six-row check
-    # remain the admission gate for the database.
-    try:
-        from sogou_weixin_discovery import discover_wechat_articles
+    auto_discover = os.environ.get("WECHAT_AUTO_DISCOVER", "1").strip().lower() not in {
+        "0", "false", "no", "off"
+    }
+    if auto_discover:
+        # Sogou is used only as a discovery index.  The returned original URL is
+        # passed to wechat_crawler, whose full article content and six-row check
+        # remain the admission gate for the database.
+        try:
+            from sogou_weixin_discovery import discover_wechat_articles
 
-        discovered_articles = discover_wechat_articles()
-        DISCOVERED_WECHAT_ARTICLES = discovered_articles
-        discovered = [article["url"] for article in discovered_articles]
-        if discovered:
-            log(f"🔎 Sogou 发现 {len(discovered)} 个公众号原文链接。")
-            candidates.extend(discovered)
-        else:
-            log("ℹ️ Sogou 未发现新的纬班长雅砻江公众号原文。")
-    except Exception as exc:
-        log(f"⚠️ Sogou 公众号文章发现失败，继续使用已配置链接: {exc}")
+            discovered_articles = discover_wechat_articles()
+            DISCOVERED_WECHAT_ARTICLES = discovered_articles
+            discovered = [article["url"] for article in discovered_articles]
+            if discovered:
+                log(f"🔎 Sogou 发现 {len(discovered)} 个公众号原文链接。")
+                candidates.extend(discovered)
+            else:
+                log("ℹ️ Sogou 未发现新的纬班长雅砻江公众号原文。")
+        except Exception as exc:
+            log(f"⚠️ Sogou 公众号文章发现失败，继续使用已配置链接: {exc}")
+    else:
+        log("⏭️ 已关闭 Sogou 公众号文章发现。")
 
     urls = []
     seen = set()
@@ -447,8 +458,11 @@ def validate_wechat_rows(rows, source_url):
 
 
 def crawl_new_wechat_articles():
-    """抓取配置的原始公众号链接；失败时跳过，不影响官方数据流程。"""
+    """在显式开启时抓取配置的原始公众号链接。"""
     global GENERATED_WECHAT_CACHE_FILES
+    if not WECHAT_AUTO_FETCH:
+        log("⏭️ 已关闭公众号自动抓取，保留并使用既有缓存数据。")
+        return
     urls = configured_wechat_article_urls()
     if not urls:
         log("ℹ️ 未配置待抓取的公众号原始链接，跳过自动 crawler。")

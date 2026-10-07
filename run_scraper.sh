@@ -62,9 +62,9 @@ export PYTHONUNBUFFERED=1
 # crawl4ai 默认把缓存写入用户主目录；LaunchAgent 运行时可能没有该目录的
 # 文件权限，因此把它限制在项目内，并由 .gitignore 排除。
 export CRAWL4_AI_BASE_DIRECTORY="${CRAWL4_AI_BASE_DIRECTORY:-$(pwd)}"
-# Sogou Weixin MCP is launched by uvx during automatic article discovery.
-# Keep its package cache beside the project so launchd does not depend on
-# privacy-protected paths under the user's home directory.
+# Sogou Weixin MCP is launched by uvx only when WECHAT_AUTO_FETCH=1 explicitly
+# enables公众号抓取. Keep its package cache beside the project so launchd does
+# not depend on privacy-protected paths under the user's home directory.
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$(pwd)/.cache/uv}"
 PROXY_PORT=""
 for port in 7890 17890; do
@@ -93,4 +93,8 @@ if [ -f ".env.local" ]; then
   set +a
   log "已加载本地环境变量: .env.local"
 fi
+# 按当前配置永久关闭定时任务的公众号自动发现和 crawler 抓取；
+# 已有公众号缓存仍由 scraper.py 读取，不删除历史数据。
+export WECHAT_AUTO_FETCH=0
+log "已关闭公众号自动抓取，仅使用既有公众号缓存。"
 "$PYTHON_BIN" scraper.py
