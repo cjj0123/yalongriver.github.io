@@ -10,6 +10,7 @@ import html
 import urllib.request
 import urllib.parse
 import asyncio
+import tempfile
 from playwright.sync_api import sync_playwright
 
 # --- 配置区 ---
@@ -693,7 +694,7 @@ def fetch_and_store_data():
 def git_push_data():
     repo_path = os.path.dirname(os.path.abspath(__file__))
 
-    def run_git(args, step_name, timeout=180):
+    def git_command_context(args):
         env = os.environ.copy()
         # 任何 git 交互都必须失败退出，避免 launchd / 定时任务长时间挂起。
         env["GIT_TERMINAL_PROMPT"] = "0"
@@ -707,6 +708,10 @@ def git_push_data():
                 "-c", f"https.proxy={proxy_url}",
                 *args[1:],
             ]
+        return args, env
+
+    def run_git(args, step_name, timeout=180):
+        args, env = git_command_context(args)
         result = subprocess.run(
             args,
             cwd=repo_path,
@@ -723,6 +728,225 @@ def git_push_data():
             raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
         if result.stderr.strip():
             log(f"⚠️ {step_name} stderr: {result.stderr.strip()}")
+        return result
+
+    def run_git_unchecked(args, step_name, timeout=180):
+        """运行需要由调用方检查返回码的 Git 命令，例如冲突合并。"""
+        args, env = git_command_context(args)
+        result = subprocess.run(
+            args,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+        )
+        if result.stdout.strip():
+            log(f"📄 {step_name} stdout: {result.stdout.strip()}")
+        if result.stderr.strip():
+            prefix = "⚠️" if result.returncode == 0 else "❌"
+            log(f"{prefix} {step_name} stderr: {result.stderr.strip()}")
+        return result
+
+    def write_remote_db_snapshot(snapshot_path):
+        """把 origin/main 的 SQLite blob 暂存到临时目录，供数据级合并使用。"""
+        args, env = git_command_context(["git", "show", "origin/main:reservoirs.db"])
+        with open(snapshot_path, "wb") as snapshot:
+            result = subprocess.run(
+                args,
+                cwd=repo_path,
+                stdout=snapshot,
+                stderr=subprocess.PIPE,
+                env=env,
+                timeout=180,
+            )
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        if stderr:
+            log(f"⚠️ 读取远程数据库 stderr: {stderr}")
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode, args, stderr=stderr
+            )
+
+    def merge_sqlite_rows(remote_db_path):
+        """将远程数据库中本地缺少的完整记录并入当前数据库，不按二进制覆盖。"""
+        local_db_path = os.path.join(repo_path, DB_FILE)
+        conn = sqlite3.connect(local_db_path)
+        try:
+            conn.execute("ATTACH DATABASE ? AS remote_db", (remote_db_path,))
+            before = conn.total_changes
+            conn.execute(
+                """
+                INSERT INTO main.reservoir_data (
+                    name, record_time, water_level, inflow, outflow,
+                    capacity_level, percentage, source, source_url,
+                    energy_level, note
+                )
+                SELECT
+                    remote.name, remote.record_time, remote.water_level,
+                    remote.inflow, remote.outflow, remote.capacity_level,
+                    remote.percentage, remote.source, remote.source_url,
+                    remote.energy_level, remote.note
+                FROM remote_db.reservoir_data AS remote
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM main.reservoir_data AS local
+                    WHERE local.name IS remote.name
+                      AND local.record_time IS remote.record_time
+                      AND local.water_level IS remote.water_level
+                      AND local.inflow IS remote.inflow
+                      AND local.outflow IS remote.outflow
+                      AND local.capacity_level IS remote.capacity_level
+                      AND local.percentage IS remote.percentage
+                      AND local.source IS remote.source
+                      AND local.source_url IS remote.source_url
+                      AND local.energy_level IS remote.energy_level
+                      AND local.note IS remote.note
+                )
+                """
+            )
+            added = conn.total_changes - before
+            conn.commit()
+            if added:
+                log(f"🔀 SQLite 数据级合并新增 {added} 条远程记录。")
+            else:
+                log("🔀 SQLite 数据级合并：没有缺失的远程记录。")
+            return added
+        finally:
+            conn.close()
+
+    def tracked_changes():
+        result = run_git(["git", "status", "--porcelain=v1"], "检查 Git 工作树")
+        return [
+            line for line in result.stdout.splitlines()
+            if line and not line.startswith("?? ")
+        ]
+
+    def abort_merge_if_needed():
+        state = run_git_unchecked(
+            ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"],
+            "检查合并状态",
+            timeout=30,
+        )
+        if state.returncode == 0:
+            run_git(["git", "merge", "--abort"], "取消未完成的远程合并")
+
+    def synchronize_remote_updates():
+        """先同步 origin/main；分叉时合并远程，并对 SQLite 做数据级合并。"""
+        log("🔄 先同步远程变动: git fetch origin main...")
+        run_git(["git", "fetch", "--no-tags", "origin", "main"], "git fetch origin/main", timeout=300)
+
+        divergence = run_git(
+            ["git", "rev-list", "--left-right", "--count", "HEAD...origin/main"],
+            "检查本地与远程分叉",
+            timeout=30,
+        ).stdout.strip().split()
+        if len(divergence) != 2:
+            raise RuntimeError(f"无法解析本地与远程分叉状态: {divergence}")
+        ahead, behind = (int(value) for value in divergence)
+        log(f"📊 本地领先 {ahead} 个提交，远程领先 {behind} 个提交。")
+
+        if behind == 0:
+            log("✅ 远程没有本地缺失的提交，无需合并。")
+            return
+
+        if ahead == 0:
+            run_git(["git", "merge", "--ff-only", "origin/main"], "快进合并远程更新")
+            return
+
+        changes = tracked_changes()
+        if changes:
+            raise RuntimeError(
+                "合并远程更新前发现未提交的跟踪文件，已停止以保护用户改动: "
+                + ", ".join(changes)
+            )
+
+        snapshot_path = None
+        merge_started = False
+        try:
+            snapshot_file = tempfile.NamedTemporaryFile(
+                prefix="yalongriver-remote-",
+                suffix=".db",
+                dir="/private/tmp",
+                delete=False,
+            )
+            snapshot_path = snapshot_file.name
+            snapshot_file.close()
+            write_remote_db_snapshot(snapshot_path)
+
+            merge_result = run_git_unchecked(
+                ["git", "merge", "--no-commit", "--no-ff", "origin/main"],
+                "合并远程更新",
+                timeout=300,
+            )
+            merge_started = True
+            unresolved = run_git(
+                ["git", "diff", "--name-only", "--diff-filter=U"],
+                "检查合并冲突",
+                timeout=30,
+            ).stdout.splitlines()
+            unresolved = [path for path in unresolved if path]
+
+            if any(path != DB_FILE for path in unresolved):
+                raise RuntimeError(
+                    "远程合并产生数据库以外的冲突，已停止保护性退出: "
+                    + ", ".join(unresolved)
+                )
+            if merge_result.returncode != 0 and not unresolved:
+                raise subprocess.CalledProcessError(
+                    merge_result.returncode,
+                    merge_result.args,
+                    merge_result.stdout,
+                    merge_result.stderr,
+                )
+
+            if DB_FILE in unresolved:
+                # 仅在已确认是 SQLite 二进制冲突时保留当前本地版本，
+                # 随后由 merge_sqlite_rows 把远程缺失行并入，而不是覆盖数据库。
+                run_git(
+                    ["git", "checkout", "--ours", "--", DB_FILE],
+                    "保留本地 SQLite 作为合并基底",
+                )
+                run_git(["git", "add", "--", DB_FILE], "标记 SQLite 冲突已处理")
+
+            merge_sqlite_rows(snapshot_path)
+            run_git(["git", "add", "--", DB_FILE], "暂存合并后的 SQLite")
+
+            remaining = run_git(
+                ["git", "diff", "--name-only", "--diff-filter=U"],
+                "复核合并冲突",
+                timeout=30,
+            ).stdout.splitlines()
+            if remaining:
+                raise RuntimeError("合并后仍存在未解决冲突: " + ", ".join(remaining))
+
+            run_git(
+                ["git", "commit", "-m", "Merge remote updates before auto update"],
+                "提交远程合并结果",
+            )
+        except Exception:
+            if merge_started:
+                try:
+                    abort_merge_if_needed()
+                except Exception as abort_error:
+                    log(f"⚠️ 自动取消合并失败，请人工检查 Git 状态: {abort_error}")
+            raise
+        finally:
+            if snapshot_path:
+                try:
+                    os.unlink(snapshot_path)
+                except FileNotFoundError:
+                    pass
+
+    def is_non_fast_forward(error):
+        output = "\n".join(
+            value or ""
+            for value in [getattr(error, "stdout", ""), getattr(error, "stderr", "")]
+        ).lower()
+        return any(
+            marker in output
+            for marker in ("non-fast-forward", "fetch first", "[rejected]")
+        )
 
     def push_with_retry():
         last_error = None
@@ -737,6 +961,9 @@ def git_push_data():
             except subprocess.CalledProcessError as e:
                 last_error = e
                 log(f"❌ git push 第 {attempt}/3 次失败 (exit code {e.returncode})。")
+                if is_non_fast_forward(e) and attempt < 3:
+                    log("🔁 远程分支已变化，先 fetch 并合并，再重试推送。")
+                    synchronize_remote_updates()
 
         raise last_error
 
@@ -764,6 +991,9 @@ def git_push_data():
             else:
                 raise
 
+        # 本地提交完成后才合并远程，确保当前数据库更新可作为合并的一方；
+        # 推送期间远程再次变化时，push_with_retry 还会重复执行此步骤。
+        synchronize_remote_updates()
         push_with_retry()
         log("🚀 数据同步成功！")
     except subprocess.TimeoutExpired as e:
