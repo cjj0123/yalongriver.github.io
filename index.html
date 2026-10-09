@@ -59,6 +59,38 @@
         .meta-text a { color: #1890ff; text-decoration: none; }
         .loading-text { text-align: center; font-size: 1.1em; color: #666; padding: 100px; }
         .error-text { text-align: center; color: #ff4d4f; padding: 50px; border: 1px dashed #ff4d4f; border-radius: 8px; }
+        .timeline-card {
+            background: #fff;
+            border-radius: 12px;
+            margin-bottom: 40px;
+            padding: 30px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.05);
+        }
+        .timeline-card h2 { margin: 0 0 6px; color: #1f3b57; font-size: 1.3em; text-align: center; }
+        .timeline { position: relative; margin: 24px 0 0; padding-left: 28px; }
+        .timeline::before {
+            content: ''; position: absolute; left: 8px; top: 6px; bottom: 6px;
+            width: 2px; background: #d9e8ff; border-radius: 2px;
+        }
+        .timeline-item { position: relative; margin-bottom: 22px; }
+        .timeline-item:last-child { margin-bottom: 0; }
+        .timeline-item::before {
+            content: ''; position: absolute; left: -26px; top: 5px;
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #1890ff; border: 3px solid #e6f4ff;
+        }
+        .timeline-date {
+            display: inline-block; font-weight: 700; color: #1890ff;
+            font-size: 0.95em; margin-bottom: 4px;
+        }
+        .timeline-tag {
+            display: inline-block; font-size: 0.78em; color: #b7791f;
+            background: #fff7e6; border: 1px solid #ffe58f; border-radius: 4px;
+            padding: 1px 8px; margin-left: 8px; vertical-align: 1px;
+        }
+        .timeline-body p { margin: 0 0 6px; line-height: 1.7; font-size: 0.96em; }
+        .timeline-body a { color: #1890ff; text-decoration: none; font-size: 0.86em; }
+        .timeline-foot { color: #999; font-size: 0.84em; text-align: center; margin-top: 18px; }
     </style>
 </head>
 <body>
@@ -75,6 +107,70 @@
         <div id="data-error" class="error-text" style="display: none;"></div>
         
         <div id="charts-area"></div>
+
+        <div class="timeline-card">
+            <h2>雅砻江水电站事件时间线</h2>
+            <p class="meta-text">收录公开披露中核实的电站投产、截流、核准等节点，每条附来源链接</p>
+            <div class="timeline">
+                <div class="timeline-item">
+                    <div class="timeline-date">2026-07-20<span class="timeline-tag">拟建</span></div>
+                    <div class="timeline-body">
+                        <p>国投电力董事会审议通过与宁德时代合资设立牙根公司，投资建设牙根二级水电站（装机240万千瓦，总投资333.94亿元，拟2035年首台机组投产；项目待国家发改委核准）。</p>
+                        <a href="http://infonotice.sylapp.cn/LC_NotTextAnnouncement/2026/07/21/837894512508.PDF" target="_blank" rel="noopener">来源：国投电力公告（2026-035）</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2026-02-22</div>
+                    <div class="timeline-body">
+                        <p>牙根一级水电站大坝首仓混凝土浇筑，标志电站进入大坝主体工程施工阶段。</p>
+                        <a href="https://finance.eastmoney.com/a/202602223651869226.html" target="_blank" rel="noopener">来源：中国新闻网</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2025-10-28</div>
+                    <div class="timeline-body">
+                        <p>孟底沟水电站（240万千瓦）、牙根一级水电站（30万千瓦）同步实现大江截流，历时近30小时，为雅砻江流域首次两站同步截流，项目转入主体工程施工阶段。</p>
+                        <a href="https://finance.sina.cn/2025-10-28/detail-infvmezt9019815.d.html" target="_blank" rel="noopener">来源：川观新闻</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2024-10</div>
+                    <div class="timeline-body">
+                        <p>两河口水电站历时4年蓄水，首次蓄至正常蓄水位2865米。</p>
+                        <a href="https://k.sina.cn/article_5953189932_162d6782c06704yq7u.html?from=news" target="_blank" rel="noopener">来源：工人日报</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2023-12-07</div>
+                    <div class="timeline-body">
+                        <p>孟底沟水电站主体工程正式开工建设。</p>
+                        <a href="http://sdsjb.joyhua.cn/sdsj/20231215//01.pdf" target="_blank" rel="noopener">来源：中国水利水电第四工程局报</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2022-03</div>
+                    <div class="timeline-body">
+                        <p>两河口水电站6台机组全部投产发电（总装机300万千瓦）。</p>
+                        <a href="https://k.sina.cn/article_5953189932_162d6782c06704yq7u.html?from=news" target="_blank" rel="noopener">来源：工人日报</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2021-10-17</div>
+                    <div class="timeline-body">
+                        <p>杨房沟水电站4台机组全部投产发电（总装机150万千瓦）。</p>
+                        <a href="https://pdf.dfcfw.com/pdf/H2_AN202110181523563394_1.pdf" target="_blank" rel="noopener">来源：川投能源公告</a>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-date">2021-02-27</div>
+                    <div class="timeline-body">
+                        <p>孟底沟水电站获得四川省发改委核准（装机240万千瓦，总投资347.22亿元，为雅砻江中游“一库七级”第5级）。</p>
+                        <a href="http://static.cninfo.com.cn/finalpage/2021-03-04/1209330768.PDF" target="_blank" rel="noopener">来源：川投能源公告</a>
+                    </div>
+                </div>
+            </div>
+            <p class="timeline-foot">每月核查公开披露，新增节点经确认后加入</p>
+        </div>
     </div>
 
     <script src="plot.js"></script>
