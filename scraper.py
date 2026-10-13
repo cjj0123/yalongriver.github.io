@@ -21,6 +21,9 @@ LOG_FILE = "scrape.log"
 GOV_SOURCE = "四川政务公开"
 XUEQIU_SOURCE = "雪球@纬班长"
 WECHAT_SOURCE = "微信公众号@纬班长"
+CJH_SOURCE = "长江水文网"
+CJH_LOCAL_POST_DIR = "cjh_briefings"
+CJH_RESERVOIR_NAMES = ["两河口", "锦屏一级", "二滩"]
 XUEQIU_USER_ID = "4737961300"
 XUEQIU_STATUS_IDS = [
     status_id.strip()
@@ -645,9 +648,64 @@ def fetch_xueqiu_supplemental_data():
             log(f"✅ 微信公众号补充源解析到 {len(parsed)} 条: {source_url}")
             all_rows.extend(parsed)
 
+    for text, source_url in iter_cjh_briefing_sources():
+        parsed = parse_cjh_briefing_rows(text, source_url)
+        if parsed:
+            log(f"✅ 长江水文网简报解析到 {len(parsed)} 条: {source_url}")
+            all_rows.extend(parsed)
+
     if not all_rows:
         log("⚠️ 纬班长补充源未解析到有效数据。")
     return all_rows
+
+def iter_cjh_briefing_sources():
+    """读取长江水文网水雨情报告简报的本地事实数据缓存（cjh_briefings/*.txt）。"""
+    for path in sorted(glob.glob(os.path.join(CJH_LOCAL_POST_DIR, "*.txt"))):
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        source_match = re.search(r'^来源\s*[:：]\s*(\S+)', text, re.M)
+        source_url = source_match.group(1) if source_match else f"file://{os.path.abspath(path)}"
+        yield text, source_url
+
+def parse_cjh_briefing_rows(text, source_url):
+    """解析长江水文网简报缓存。
+
+    每行一条记录，格式：
+    <库名><YYYY>年<M>月<D>日8时库水位：<水位> 入库流量：<入库> 出库流量：<出库> 蓄量：<蓄量>（亿m³）
+    简报蓄量单位为亿m³，转成百万m³与雪球口径一致（save_to_sqlite 入库时再 /100）。
+    """
+    rows = []
+    name_pattern = "|".join(re.escape(n) for n in CJH_RESERVOIR_NAMES)
+    for line in text.splitlines():
+        m = re.match(
+            rf'^\s*({name_pattern})\s*(\d{{4}})年\s*(\d{{1,2}})月\s*(\d{{1,2}})日',
+            line,
+        )
+        if not m:
+            continue
+        name, y, mo, d = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        water = re.search(r'库水位\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', line)
+        inflow = re.search(r'入库(?:流量)?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', line)
+        outflow = re.search(r'出库(?:流量)?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)', line)
+        capacity = re.search(r'蓄量\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*[（(]亿', line)
+        if not any([water, inflow, outflow, capacity]):
+            continue
+        rows.append({
+            "zhanming": name,
+            "ksw": water.group(1) if water else None,
+            "rkll": inflow.group(1) if inflow else None,
+            "ckll": outflow.group(1) if outflow else None,
+            "xsl": safe_float(capacity.group(1)) * 100 if capacity else None,
+            "energy_level": None,
+            "record_time": f"{y:04d}-{mo:02d}-{d:02d} 08:00:00",
+            "source": CJH_SOURCE,
+            "source_url": source_url,
+            "note": "长江水文网水雨情报告简报事实数据提取",
+        })
+    deduped = {}
+    for row in rows:
+        deduped[row["zhanming"]] = row
+    return list(deduped.values())
 
 def fetch_and_store_data():
     log("🚀 启动自动化浏览器...")
