@@ -97,4 +97,11 @@ fi
 # 已有公众号缓存仍由 scraper.py 读取，不删除历史数据。
 export WECHAT_AUTO_FETCH=0
 log "已关闭公众号自动抓取，仅使用既有公众号缓存。"
+# 先拉取远程更新（例如云端推送的 xueqiu_posts txt 缓存），再入库，
+# 避免基于旧树运行导致当天推送的数据第二天才能入库。拉取失败不中断任务。
+if git pull --ff-only origin main >/tmp/yalongriver_prepull.log 2>&1; then
+  log "已拉取远程更新。"
+else
+  log "⚠️ 拉取远程更新失败，继续使用本地数据入库（详见 /tmp/yalongriver_prepull.log）。"
+fi
 "$PYTHON_BIN" scraper.py
