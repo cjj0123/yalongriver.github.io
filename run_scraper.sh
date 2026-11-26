@@ -83,6 +83,7 @@ if [ -n "$PROXY_PORT" ]; then
   export all_proxy="$ALL_PROXY"
   log "已启用本地代理: 127.0.0.1:$PROXY_PORT"
 else
+  unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
   log "本地代理 127.0.0.1:7890/17890 不可用，将直接访问网络。"
 fi
 
@@ -99,7 +100,8 @@ export WECHAT_AUTO_FETCH=0
 log "已关闭公众号自动抓取，仅使用既有公众号缓存。"
 # 先拉取远程更新（例如云端推送的 xueqiu_posts txt 缓存），再入库，
 # 避免基于旧树运行导致当天推送的数据第二天才能入库。拉取失败不中断任务。
-if git pull --ff-only origin main >/tmp/yalongriver_prepull.log 2>&1; then
+GIT_PROXY_URL="${HTTPS_PROXY:-${HTTP_PROXY:-}}"
+if git -c "http.proxy=$GIT_PROXY_URL" -c "https.proxy=$GIT_PROXY_URL" pull --ff-only origin main >/tmp/yalongriver_prepull.log 2>&1; then
   log "已拉取远程更新。"
 else
   log "⚠️ 拉取远程更新失败，继续使用本地数据入库（详见 /tmp/yalongriver_prepull.log）。"
