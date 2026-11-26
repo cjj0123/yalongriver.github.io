@@ -1,5 +1,6 @@
 import sys
 import datetime
+import time
 import sqlite3
 import json
 import subprocess
@@ -904,10 +905,26 @@ def git_push_data():
         if state.returncode == 0:
             run_git(["git", "merge", "--abort"], "取消未完成的远程合并")
 
+    def fetch_with_retry():
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                log(f"🔄 先同步远程变动: git fetch origin main ({attempt}/3)...")
+                run_git(["git", "fetch", "--no-tags", "origin", "main"], "git fetch origin/main", timeout=300)
+                return
+            except subprocess.TimeoutExpired as e:
+                last_error = e
+                log(f"⏱️ git fetch 第 {attempt}/3 次超时。")
+            except subprocess.CalledProcessError as e:
+                last_error = e
+                log(f"❌ git fetch 第 {attempt}/3 次失败 (exit code {e.returncode})。")
+            if attempt < 3:
+                time.sleep(3)
+        raise last_error
+
     def synchronize_remote_updates():
         """先同步 origin/main；分叉时合并远程，并对 SQLite 做数据级合并。"""
-        log("🔄 先同步远程变动: git fetch origin main...")
-        run_git(["git", "fetch", "--no-tags", "origin", "main"], "git fetch origin/main", timeout=300)
+        fetch_with_retry()
 
         divergence = run_git(
             ["git", "rev-list", "--left-right", "--count", "HEAD...origin/main"],
@@ -1037,6 +1054,8 @@ def git_push_data():
                 if is_non_fast_forward(e) and attempt < 3:
                     log("🔁 远程分支已变化，先 fetch 并合并，再重试推送。")
                     synchronize_remote_updates()
+                elif attempt < 3:
+                    time.sleep(3)
 
         raise last_error
 
